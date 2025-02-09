@@ -63,18 +63,12 @@ func initDB(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *Storage) Add(ctx context.Context, result ChechResult) error {
-	stmt, err := s.db.PrepareContext(ctx, "INSERT INTO check_results (url, time, latency, code) VALUES (?, ?, ?, ?)")
-	if err != nil {
-		return err
-	}
-
-	_, err = stmt.ExecContext(ctx, result.Url, result.Time, result.Latency, result.Code)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	return nil
+	_, err := s.db.ExecContext(
+		ctx,
+		"INSERT INTO check_results (url, time, latency, code) VALUES (?, ?, ?, ?)",
+		result.Url, result.Time, result.Latency, result.Code,
+	)
+	return err
 }
 
 func (s *Storage) GetAll(ctx context.Context) ([]ChechResult, error) {
