@@ -43,7 +43,7 @@ func (m *Monitor) monitorSite(url string) {
 		if err != nil {
 			log.Printf("failed to check %s site: %s", url, err)
 		} else {
-			log.Printf("successful checking of %s site: code %d, latency %s", url, result.Code, result.Latency.Truncate(time.Millisecond).String())
+			log.Printf("successful checking of %s site: code %d, latency %dms", url, result.Code, result.Latency)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -64,11 +64,11 @@ func (m *Monitor) checkSite(url string) (result storage.ChechResult, err error) 
 	start := time.Now()
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	resp, err := http.DefaultClient.Do(req)
-	latency := time.Since(start)
-
+	latency := time.Since(start).Milliseconds()
 	if err != nil {
-		return storage.ChechResult{}, err
+		return storage.ChechResult{Url: url, Time: start, Latency: 0, Code: 0}, nil
 	}
+
 	defer resp.Body.Close()
 
 	return storage.ChechResult{Url: url, Time: start, Latency: latency, Code: resp.StatusCode}, nil

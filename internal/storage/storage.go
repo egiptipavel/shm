@@ -10,8 +10,8 @@ import (
 )
 
 const schema = `CREATE TABLE IF NOT EXISTS check_results(
-	url VARCHAR(64),
-	time TIMESTAMP,
+	url VARCHAR(64) NOT NULL,
+	time TIMESTAMP NOT NULL,
 	latency INTEGER,
 	code INTEGER
 )`
@@ -19,7 +19,7 @@ const schema = `CREATE TABLE IF NOT EXISTS check_results(
 type ChechResult struct {
 	Url     string
 	Time    time.Time
-	Latency time.Duration
+	Latency int64
 	Code    int
 }
 
@@ -63,10 +63,18 @@ func initDB(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *Storage) Add(ctx context.Context, result ChechResult) error {
+	resultLatency := &result.Latency
+	if *resultLatency == 0 {
+		resultLatency = nil
+	}
+	resultCode := &result.Code
+	if *resultCode == 0 {
+		resultCode = nil
+	}
 	_, err := s.db.ExecContext(
 		ctx,
 		"INSERT INTO check_results (url, time, latency, code) VALUES (?, ?, ?, ?)",
-		result.Url, result.Time, result.Latency, result.Code,
+		result.Url, result.Time, resultLatency, resultCode,
 	)
 	return err
 }

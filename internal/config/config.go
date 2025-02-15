@@ -19,7 +19,7 @@ func ParseConfig(path string) (*Config, error) {
 	}
 
 	config := Config{
-		DBFile: "db",
+		DBFile: "shm.db",
 	}
 	err = json.Unmarshal(content, &config)
 	if err != nil {
