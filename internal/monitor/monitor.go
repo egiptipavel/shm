@@ -5,18 +5,20 @@ import (
 	"log"
 	"net/http"
 	"shm/internal/config"
+	"shm/internal/notifier"
 	"shm/internal/storage"
 	"sync"
 	"time"
 )
 
 type Monitor struct {
-	storage *storage.Storage
-	config  config.Config
+	storage  *storage.Storage
+	notifier notifier.Notifier
+	config   config.Config
 }
 
-func New(storage *storage.Storage, config config.Config) *Monitor {
-	return &Monitor{storage, config}
+func New(storage *storage.Storage, notifier notifier.Notifier, config config.Config) *Monitor {
+	return &Monitor{storage, notifier, config}
 }
 
 func (m *Monitor) Start() {
@@ -47,17 +49,20 @@ func (m *Monitor) monitorSite(url string) {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err = m.storage.Add(ctx, result)
+		err = m.storage.AddResult(ctx, result)
 		cancel()
 		if err != nil {
 			log.Printf("failed to add check result to storage: %s", err)
+			return
 		}
+
+		m.notifier.Notify(result)
 
 		time.Sleep(time.Duration(m.config.Interval) * time.Second)
 	}
 }
 
-func (m *Monitor) checkSite(url string) (result storage.ChechResult, err error) {
+func (m *Monitor) checkSite(url string) (result storage.CheckResult, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -66,10 +71,10 @@ func (m *Monitor) checkSite(url string) (result storage.ChechResult, err error) 
 	resp, err := http.DefaultClient.Do(req)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
-		return storage.ChechResult{Url: url, Time: start, Latency: 0, Code: 0}, nil
+		return storage.CheckResult{Url: url, Time: start, Latency: 0, Code: 0}, err
 	}
 
 	defer resp.Body.Close()
 
-	return storage.ChechResult{Url: url, Time: start, Latency: latency, Code: resp.StatusCode}, nil
+	return storage.CheckResult{Url: url, Time: start, Latency: latency, Code: resp.StatusCode}, nil
 }

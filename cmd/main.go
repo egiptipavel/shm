@@ -5,6 +5,7 @@ import (
 	"log"
 	"shm/internal/config"
 	"shm/internal/monitor"
+	"shm/internal/notifier"
 	"shm/internal/storage"
 )
 
@@ -24,5 +25,13 @@ func main() {
 	}
 	defer storage.Close()
 
-	monitor.New(storage, *config).Start()
+	tgbot, err := notifier.NewTGBot("TOKEN", storage)
+	if err != nil {
+		log.Fatalf("failed to create tg bot: %s", err)
+	}
+	go func() {
+		tgbot.Start()
+	}()
+
+	monitor.New(storage, tgbot, *config).Start()
 }
