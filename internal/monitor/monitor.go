@@ -56,7 +56,9 @@ func (m *Monitor) monitorSite(url string) {
 			return
 		}
 
-		m.notifier.Notify(result)
+		if m.notifier != nil {
+			m.notifier.Notify(result)
+		}
 
 		time.Sleep(time.Duration(m.config.Interval) * time.Second)
 	}

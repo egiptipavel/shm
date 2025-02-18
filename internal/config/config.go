@@ -10,6 +10,7 @@ type Config struct {
 	Sites    []string
 	Interval int
 	DBFile   string
+	Token    string
 }
 
 func ParseConfig(path string) (*Config, error) {

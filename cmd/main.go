@@ -25,13 +25,17 @@ func main() {
 	}
 	defer storage.Close()
 
-	tgbot, err := notifier.NewTGBot("TOKEN", storage)
-	if err != nil {
-		log.Fatalf("failed to create tg bot: %s", err)
+	var notif notifier.Notifier
+	if config.Token != "" {
+		tgbot, err := notifier.NewTGBot(config.Token, storage)
+		if err != nil {
+			log.Fatalf("failed to create tg bot: %s", err)
+		}
+		go func() {
+			tgbot.Start()
+		}()
+		notif = tgbot
 	}
-	go func() {
-		tgbot.Start()
-	}()
 
-	monitor.New(storage, tgbot, *config).Start()
+	monitor.New(storage, notif, *config).Start()
 }
