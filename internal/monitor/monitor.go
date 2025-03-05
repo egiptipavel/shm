@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"shm/internal/config"
 	"shm/internal/notifier"
@@ -43,21 +43,23 @@ func (m *Monitor) monitorSite(url string) {
 	for {
 		result, err := m.checkSite(url)
 		if err != nil {
-			log.Printf("failed to check %s site: %s", url, err)
+			slog.Error("failed to check site", "url", url, "error", err)
 		} else {
-			log.Printf("successful checking of %s site: code %d, latency %dms", url, result.Code, result.Latency)
+			slog.Info("successful checking of site", "url", url, "code", result.Code, "latency_ms", result.Latency)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = m.storage.AddResult(ctx, result)
 		cancel()
 		if err != nil {
-			log.Printf("failed to add check result to storage: %s", err)
+			slog.Error("failed to add check result to storage", "error", err)
 			return
 		}
 
 		if m.notifier != nil {
-			m.notifier.Notify(result)
+			if err = m.notifier.Notify(result); err != nil {
+				slog.Error("failed to notify", "error", err)
+			}
 		}
 
 		time.Sleep(time.Duration(m.config.Interval) * time.Second)

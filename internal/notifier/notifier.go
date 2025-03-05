@@ -3,7 +3,7 @@ package notifier
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"shm/internal/storage"
 	"sync"
 	"time"
@@ -37,6 +37,7 @@ func NewTGBot(token string, stor *storage.Storage) (*TGBot, error) {
 		failed:  make(map[string]time.Time),
 	}
 	bot.Handle("/start", func(c telebot.Context) error {
+		slog.Info("start command", "chat_id", c.Chat().ID)
 		return c.Send(`Site Health Monitor Bot
 Commands:
 /subscribe - subscribe to updates
@@ -51,7 +52,7 @@ Commands:
 			return err
 		}
 
-		log.Printf("new subscriber: %d", c.Chat().ID)
+		slog.Info("new subscriber", "chat_id", c.Chat().ID)
 		return c.Send("Successful!")
 	})
 	bot.Handle("/unsubscribe", func(c telebot.Context) error {
@@ -62,7 +63,7 @@ Commands:
 			return err
 		}
 
-		log.Printf("unsubscriber: %d", c.Chat().ID)
+		slog.Info("unsubscriber", "chat_id", c.Chat().ID)
 		return c.Send("Successful!")
 	})
 

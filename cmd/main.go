@@ -2,7 +2,8 @@ package main
 
 import (
 	"flag"
-	"log"
+	"log/slog"
+	"os"
 	"shm/internal/config"
 	"shm/internal/monitor"
 	"shm/internal/notifier"
@@ -16,12 +17,14 @@ func main() {
 
 	config, err := config.ParseConfig(*configPath)
 	if err != nil {
-		log.Fatalf("failed to parse config file: %s", err)
+		slog.Error("failed to parse config file", "error", err)
+		os.Exit(1)
 	}
 
 	storage, err := storage.NewStorage(config.DBFile)
 	if err != nil {
-		log.Fatalf("failed to create storage: %s", err)
+		slog.Error("failed to create storage", "error", err)
+		os.Exit(1)
 	}
 	defer storage.Close()
 
@@ -29,7 +32,8 @@ func main() {
 	if config.Token != "" {
 		tgbot, err := notifier.NewTGBot(config.Token, storage)
 		if err != nil {
-			log.Fatalf("failed to create tg bot: %s", err)
+			slog.Error("failed to create tg bot", "error", err)
+			os.Exit(1)
 		}
 		go func() {
 			tgbot.Start()
