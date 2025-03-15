@@ -3,11 +3,9 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"shm/internal/utils"
 )
 
 type Config struct {
-	Sites    []string
 	Interval int
 	DBFile   string
 	Token    string
@@ -26,8 +24,6 @@ func ParseConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	config.Sites = utils.Distinct(config.Sites)
 
 	return &config, nil
 }
