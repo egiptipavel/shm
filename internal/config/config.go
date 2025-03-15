@@ -1,29 +1,37 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
+	"strconv"
 )
 
 type Config struct {
-	Interval int
-	DBFile   string
-	Token    string
+	DatabaseFile  string
+	TelegramToken string
+	IntervalMins  int
 }
 
-func ParseConfig(path string) (*Config, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+func New() *Config {
+	return &Config{
+		DatabaseFile:  getEnv("DATABASE_FILE", "shm.db"),
+		TelegramToken: getEnv("TELEGRAM_TOKEN", ""),
+		IntervalMins:  getEnvAsInt("REQUEST_INTERVAL_MINS", 1),
+	}
+}
+
+func getEnvAsInt(name string, defaultVal int) int {
+	valueStr := getEnv(name, "")
+	if value, err := strconv.Atoi(valueStr); err == nil {
+		return value
 	}
 
-	config := Config{
-		DBFile: "shm.db",
-	}
-	err = json.Unmarshal(content, &config)
-	if err != nil {
-		return nil, err
+	return defaultVal
+}
+
+func getEnv(key string, defaultVal string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
 	}
 
-	return &config, nil
+	return defaultVal
 }

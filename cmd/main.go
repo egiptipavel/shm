@@ -1,27 +1,24 @@
 package main
 
 import (
-	"flag"
 	"log/slog"
 	"os"
 	"shm/internal/config"
 	"shm/internal/monitor"
 	"shm/internal/notifier"
 	"shm/internal/storage"
+
+	"github.com/joho/godotenv"
 )
 
-var configPath = flag.String("config", "configs/config.json", "path to config file")
-
 func main() {
-	flag.Parse()
-
-	config, err := config.ParseConfig(*configPath)
-	if err != nil {
-		slog.Error("failed to parse config file", slog.String("error", err.Error()))
-		os.Exit(1)
+	if err := godotenv.Load(); err != nil {
+		slog.Warn("No .env file found")
 	}
 
-	storage, err := storage.NewStorage(config.DBFile)
+	config := config.New()
+
+	storage, err := storage.NewStorage(config.DatabaseFile)
 	if err != nil {
 		slog.Error("failed to create storage", slog.String("error", err.Error()))
 		os.Exit(1)
@@ -29,8 +26,8 @@ func main() {
 	defer storage.Close()
 
 	var notif notifier.Notifier
-	if config.Token != "" {
-		tgbot, err := notifier.NewTGBot(config.Token, storage)
+	if config.TelegramToken != "" {
+		tgbot, err := notifier.NewTGBot(config.TelegramToken, storage)
 		if err != nil {
 			slog.Error("failed to create tg bot", slog.String("error", err.Error()))
 			os.Exit(1)

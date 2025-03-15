@@ -46,7 +46,7 @@ func (m *Monitor) startMonitoring() {
 		}
 		wg.Wait()
 
-		time.Sleep(time.Duration(m.config.Interval) * time.Second)
+		time.Sleep(time.Duration(m.config.IntervalMins) * time.Minute)
 	}
 }
 
