@@ -16,7 +16,7 @@ func ConvertToExpectedUrl(url string) (string, error) {
 		return url, fmt.Errorf("invalid url")
 	}
 
-	if !strings.HasPrefix(url, "http://") || !strings.HasPrefix(url, "https://") {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = defaultUrlScheme + url
 	}
 
