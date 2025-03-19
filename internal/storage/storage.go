@@ -268,10 +268,11 @@ func (s *Storage) GetAllMonitoredSites(ctx context.Context) ([]Site, error) {
 func (s *Storage) GetAllSitesByChatId(ctx context.Context, chatId int64) ([]Site, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT sites.id, sites.url 
-		FROM chat_to_site 
-		JOIN sites ON chat_to_site.site_id = sites.id
-		WHERE chat_to_site.chat_id = ?`,
+		`SELECT s.id, s.url 
+		FROM chat_to_site as c
+		JOIN sites as s
+		ON c.site_id = s.id
+		WHERE c.chat_id = ?`,
 		chatId,
 	)
 	if err != nil {

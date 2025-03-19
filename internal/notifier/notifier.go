@@ -256,6 +256,10 @@ func (t *TGBot) listCommand() func(c telebot.Context) error {
 			fmt.Fprintf(&b, "%d) %s\n", i+1, site.Url)
 		}
 
-		return c.Send(b.String())
+		result := b.String()
+		if len(result) == 0 {
+			return c.Send("You are not subscribed to any site")
+		}
+		return c.Send(result)
 	}
 }
