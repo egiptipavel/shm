@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
 	"shm/internal/config"
 	"shm/internal/notifier"
 	"shm/internal/storage"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -23,31 +26,72 @@ func New(storage *storage.Storage, notifier notifier.Notifier, config config.Con
 }
 
 func (m *Monitor) Start() {
-	m.startMonitoring()
-}
+	var wg sync.WaitGroup
+	sites := make(chan storage.Site)
+	done := make(chan struct{})
+	exit := make(chan os.Signal, 1)
+	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
 
-func (m *Monitor) startMonitoring() {
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+		loop1:
+			for {
+				select {
+				case <-done:
+					break loop1
+				default:
+					site, ok := <-sites
+					if !ok {
+						break loop1
+					}
+					m.monitorSite(site)
+				}
+			}
+		}()
+	}
+
+loop2:
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		sites, err := m.storage.GetAllMonitoredSites(ctx)
-		cancel()
+		start := time.Now()
+
+		s, err := m.getSites()
 		if err != nil {
-			slog.Error("failed to get all sites", slog.String("error", err.Error()))
+			slog.Error("failed to get sites", slog.String("error", err.Error()))
 			break
 		}
 
-		var wg sync.WaitGroup
-		for _, site := range sites {
-			wg.Add(1)
-			go func(site storage.Site) {
-				defer wg.Done()
-				m.monitorSite(site)
-			}(site)
+		for _, site := range s {
+			select {
+			case s := <-exit:
+				slog.Info("exit signal was received", slog.String("signal", s.String()))
+				break loop2
+			default:
+				sites <- site
+			}
 		}
-		wg.Wait()
 
-		time.Sleep(time.Duration(m.config.IntervalMins) * time.Minute)
+		select {
+		case <-time.After(time.Duration(m.config.IntervalMins)*time.Minute - time.Since(start)):
+		case s := <-exit:
+			slog.Info("exit signal was received", slog.String("signal", s.String()))
+			break loop2
+		}
 	}
+
+	close(done)
+	close(sites)
+
+	wg.Wait()
+}
+
+func (m *Monitor) getSites() ([]storage.Site, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return m.storage.GetAllMonitoredSites(ctx)
 }
 
 func (m *Monitor) monitorSite(site storage.Site) {
