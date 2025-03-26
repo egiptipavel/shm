@@ -53,35 +53,42 @@ func (t *TGBot) Start() {
 
 func (t *TGBot) Notify(result storage.CheckResult) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	lastResult, err := t.storage.GetLastResultForSite(ctx, result.Site)
+	lastResults, err := t.storage.GetLastTwoResultsForSite(ctx, result.Site)
 	cancel()
+	if err != nil {
+		return fmt.Errorf("failed to get last two results for site: %w", err)
+	}
 
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+	if len(lastResults) == 0 {
+		return nil
 	}
 
 	var message string
-	if err == nil {
-		if (!lastResult.Code.Valid || lastResult.Code.Int64 != 200) &&
-			result.Code.Valid && result.Code.Int64 == 200 {
-			message = fmt.Sprintf(
-				"Good news! The website %s is back up after %d minutes.",
-				result.Site.Url,
-				int(time.Since(lastResult.Time).Minutes()),
-			)
-		} else if lastResult.Code.Valid && lastResult.Code.Int64 == 200 &&
-			(!result.Code.Valid || result.Code.Int64 != 200) {
+	if len(lastResults) == 1 {
+		if !result.IsSuccessful() && !lastResults[0].IsSuccessful() {
 			message = fmt.Sprintf(
 				"Bad news. The website %s is temporarily unavailable.",
 				result.Site.Url,
 			)
 		}
-	} else {
-		if !result.Code.Valid || result.Code.Int64 != 200 {
+	} else if result.IsSuccessful() &&
+		!lastResults[0].IsSuccessful() &&
+		!lastResults[1].IsSuccessful() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		lastSuccessfulResult, err := t.storage.GetLastSuccessfulResultForSite(ctx, result.Site)
+		cancel()
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to get last successful result for site: %w", err)
+		}
+
+		if err == nil {
 			message = fmt.Sprintf(
-				"Bad news. The website %s is temporarily unavailable.",
+				"Good news! The website %s is back up after %d minutes.",
 				result.Site.Url,
+				int(time.Since(lastSuccessfulResult.Time).Minutes()),
 			)
+		} else {
+			message = fmt.Sprintf("Good news! The website %s is back up.", result.Site.Url)
 		}
 	}
 

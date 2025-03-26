@@ -40,6 +40,10 @@ type CheckResult struct {
 	Code    sql.NullInt64
 }
 
+func (c *CheckResult) IsSuccessful() bool {
+	return c.Code.Valid && c.Code.Int64 == 200
+}
+
 type Chat struct {
 	Id           int64
 	IsSubscribed bool
@@ -119,9 +123,8 @@ func (s *Storage) AddResult(ctx context.Context, result CheckResult) error {
 	return err
 }
 
-func (s *Storage) GetLastResultForSite(ctx context.Context, site Site) (CheckResult, error) {
-	var result CheckResult
-	err := s.db.QueryRowContext(
+func (s *Storage) GetLastTwoResultsForSite(ctx context.Context, site Site) ([]CheckResult, error) {
+	rows, err := s.db.QueryContext(
 		ctx,
 		`SELECT s.id, s.url, c.time, c.latency, c.code
 		FROM check_results AS c
@@ -129,9 +132,53 @@ func (s *Storage) GetLastResultForSite(ctx context.Context, site Site) (CheckRes
 		ON c.site_id = s.id
 		WHERE s.id = ?
 		ORDER BY time DESC
+		LIMIT 2`,
+		site.Id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []CheckResult
+	for rows.Next() {
+		var result CheckResult
+
+		err = rows.Scan(
+			&result.Site.Id,
+			&result.Site.Url,
+			&result.Time,
+			&result.Latency,
+			&result.Code,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+func (s *Storage) GetLastSuccessfulResultForSite(ctx context.Context, site Site) (CheckResult, error) {
+	var result CheckResult
+	err := s.db.QueryRowContext(ctx,
+		`SELECT s.id, s.url, c.time, c.latency, c.code
+		FROM check_results as c
+		JOIN sites as s
+		ON c.site_id = s.id
+		WHERE s.id = ? AND c.code = 200
+		ORDER BY c.time
 		LIMIT 1`,
 		site.Id,
-	).Scan(&result.Site.Id, &result.Site.Url, &result.Time, &result.Latency, &result.Code)
+	).Scan(
+		&result.Site.Id,
+		&result.Site.Url,
+		&result.Time,
+		&result.Latency,
+		&result.Code,
+	)
 	return result, err
 }
 
@@ -172,7 +219,7 @@ func (s *Storage) GetAllSubscribedOnSiteChats(ctx context.Context, url string) (
 	}
 	defer rows.Close()
 
-	chats := make([]Chat, 0)
+	var chats []Chat
 	for rows.Next() {
 		var chat Chat
 
@@ -246,7 +293,7 @@ func (s *Storage) GetAllMonitoredSites(ctx context.Context) ([]Site, error) {
 	}
 	defer rows.Close()
 
-	sites := make([]Site, 0)
+	var sites []Site
 	for rows.Next() {
 		var site Site
 
@@ -280,7 +327,7 @@ func (s *Storage) GetAllSitesByChatId(ctx context.Context, chatId int64) ([]Site
 	}
 	defer rows.Close()
 
-	sites := make([]Site, 0)
+	var sites []Site
 	for rows.Next() {
 		var site Site
 
