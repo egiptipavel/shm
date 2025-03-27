@@ -131,7 +131,7 @@ func (s *Storage) GetLastTwoResultsForSite(ctx context.Context, site Site) ([]Ch
 		JOIN sites AS s
 		ON c.site_id = s.id
 		WHERE s.id = ?
-		ORDER BY time DESC
+		ORDER BY c.time DESC
 		LIMIT 2`,
 		site.Id,
 	)
@@ -169,7 +169,7 @@ func (s *Storage) GetLastSuccessfulResultForSite(ctx context.Context, site Site)
 		JOIN sites as s
 		ON c.site_id = s.id
 		WHERE s.id = ? AND c.code = 200
-		ORDER BY c.time
+		ORDER BY c.time DESC
 		LIMIT 1`,
 		site.Id,
 	).Scan(
