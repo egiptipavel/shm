@@ -90,9 +90,9 @@ func (t *TGBot) Notify(result storage.CheckResult) error {
 		} else {
 			message = fmt.Sprintf("Good news! The website %s is back up.", result.Site.Url)
 		}
-	} else if lastResults[1].IsSuccessful() &&
-		!lastResults[1].IsSuccessful() &&
-		!result.IsSuccessful() {
+	} else if !result.IsSuccessful() &&
+		!lastResults[0].IsSuccessful() &&
+		lastResults[1].IsSuccessful() {
 		message = fmt.Sprintf(
 			"Bad news. The website %s is temporarily unavailable.",
 			result.Site.Url,
