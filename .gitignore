@@ -22,4 +22,9 @@ go.work.sum
 .env
 
 .vscode/
-db
+
+# Database files
+*.db
+
+# Log files
+*.log

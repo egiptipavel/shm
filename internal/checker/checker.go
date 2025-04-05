@@ -1,4 +1,4 @@
-package monitor
+package checker
 
 import (
 	"context"
@@ -7,32 +7,35 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"shm/internal/config"
-	"shm/internal/notifier"
-	"shm/internal/storage"
+	"shm/internal/model"
+	"shm/internal/repository"
 	"sync"
 	"syscall"
 	"time"
 )
 
-type Monitor struct {
-	storage  *storage.Storage
-	notifier notifier.Notifier
-	config   config.Config
+type Checker struct {
+	results      *repository.Results
+	sites        *repository.Sites
+	intervalMins int
 }
 
-func New(storage *storage.Storage, notifier notifier.Notifier, config config.Config) *Monitor {
-	return &Monitor{storage, notifier, config}
+func New(db *sql.DB, intervalMins int) *Checker {
+	return &Checker{
+		repository.NewResultsRepo(db),
+		repository.NewSitesRepo(db),
+		intervalMins,
+	}
 }
 
-func (m *Monitor) Start() {
+func (m *Checker) Start() {
 	var wg sync.WaitGroup
-	sites := make(chan storage.Site)
+	sites := make(chan model.Site)
 	done := make(chan struct{})
 	exit := make(chan os.Signal, 1)
 	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
 
-	for range 20 {
+	for range 1000 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -74,27 +77,26 @@ loop2:
 		}
 
 		select {
-		case <-time.After(time.Duration(m.config.IntervalMins)*time.Minute - time.Since(start)):
+		case <-time.After(time.Duration(m.intervalMins)*time.Minute - time.Since(start)):
 		case s := <-exit:
 			slog.Info("exit signal was received", slog.String("signal", s.String()))
 			break loop2
 		}
 	}
 
-	close(done)
 	close(sites)
 
 	wg.Wait()
 }
 
-func (m *Monitor) getSites() ([]storage.Site, error) {
+func (m *Checker) getSites() ([]model.Site, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	return m.storage.GetAllMonitoredSites(ctx)
+	return m.sites.GetAllMonitoredSites(ctx)
 }
 
-func (m *Monitor) monitorSite(site storage.Site) {
+func (m *Checker) monitorSite(site model.Site) {
 	result, err := m.checkSite(site)
 	if err != nil {
 		slog.Error(
@@ -111,21 +113,15 @@ func (m *Monitor) monitorSite(site storage.Site) {
 		)
 	}
 
-	if m.notifier != nil {
-		if err = m.notifier.Notify(result); err != nil {
-			slog.Error("failed to notify", slog.String("error", err.Error()))
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err = m.storage.AddResult(ctx, result)
+	err = m.results.AddResult(ctx, result)
 	cancel()
 	if err != nil {
 		slog.Error("failed to add check result to storage", slog.String("error", err.Error()))
 	}
 }
 
-func (m *Monitor) checkSite(site storage.Site) (result storage.CheckResult, err error) {
+func (m *Checker) checkSite(site model.Site) (result model.CheckResult, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -134,7 +130,7 @@ func (m *Monitor) checkSite(site storage.Site) (result storage.CheckResult, err 
 	resp, err := http.DefaultClient.Do(req)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
-		return storage.CheckResult{
+		return model.CheckResult{
 			Site:    site,
 			Time:    start,
 			Latency: sql.NullInt64{},
@@ -144,7 +140,7 @@ func (m *Monitor) checkSite(site storage.Site) (result storage.CheckResult, err 
 
 	defer resp.Body.Close()
 
-	return storage.CheckResult{
+	return model.CheckResult{
 		Site: site,
 		Time: start,
 		Latency: sql.NullInt64{

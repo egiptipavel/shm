@@ -13,7 +13,7 @@ type Config struct {
 
 func New() *Config {
 	return &Config{
-		DatabaseFile:  getEnv("DATABASE_FILE", "shm.db"),
+		DatabaseFile:  getEnv("DATABASE_FILE", "storage/shm.db"),
 		TelegramToken: getEnv("TELEGRAM_TOKEN", ""),
 		IntervalMins:  getEnvAsInt("REQUEST_INTERVAL_MINS", 1),
 	}
