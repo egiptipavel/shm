@@ -2,9 +2,10 @@ package main
 
 import (
 	"log/slog"
+	"net/http"
 	"os"
-	"shm/internal/checker"
 	"shm/internal/config"
+	"shm/internal/server"
 	"shm/internal/storage/sqlite"
 )
 
@@ -18,5 +19,9 @@ func main() {
 	}
 	defer db.Close()
 
-	checker.New(db, config.IntervalMins).Start()
+	server := server.New(db, config.Address)
+	slog.Info("starting http server", slog.String("address", config.Address))
+	if err := server.Start(); err != http.ErrServerClosed {
+		slog.Error("error from http server", slog.String("error", err.Error()))
+	}
 }

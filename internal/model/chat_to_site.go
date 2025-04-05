@@ -1,6 +1,6 @@
 package model
 
 type ChatToSite struct {
-	ChatID int64
-	SiteID int64
+	ChatID int64 `json:"chatId"`
+	SiteID int64 `json:"siteId"`
 }

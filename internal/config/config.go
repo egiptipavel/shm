@@ -1,20 +1,31 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
+
+func init() {
+	if err := godotenv.Load(); err != nil {
+		slog.Warn("No .env file found")
+	}
+}
 
 type Config struct {
 	DatabaseFile  string
 	TelegramToken string
+	Address       string
 	IntervalMins  int
 }
 
-func New() *Config {
-	return &Config{
+func New() Config {
+	return Config{
 		DatabaseFile:  getEnv("DATABASE_FILE", "storage/shm.db"),
 		TelegramToken: getEnv("TELEGRAM_TOKEN", ""),
+		Address:       getEnv("ADDRESS", "localhost:8080"),
 		IntervalMins:  getEnvAsInt("REQUEST_INTERVAL_MINS", 1),
 	}
 }

@@ -6,15 +6,9 @@ import (
 	"shm/internal/config"
 	"shm/internal/notifier/telegram"
 	"shm/internal/storage/sqlite"
-
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		slog.Warn("No .env file found")
-	}
-
 	config := config.New()
 	if config.TelegramToken == "" {
 		slog.Error("telegram token is not found")

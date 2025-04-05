@@ -6,10 +6,10 @@ import (
 )
 
 type CheckResult struct {
-	Site    Site
-	Time    time.Time
-	Latency sql.NullInt64
-	Code    sql.NullInt64
+	Site    Site          `json:"site"`
+	Time    time.Time     `json:"time"`
+	Latency sql.NullInt64 `json:"latency"`
+	Code    sql.NullInt64 `json:"code"`
 }
 
 func (c *CheckResult) IsSuccessful() bool {
