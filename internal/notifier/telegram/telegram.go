@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"shm/internal/lib/logger"
 	urlpkg "shm/internal/lib/url"
 	"shm/internal/model"
 	"shm/internal/repository"
@@ -121,7 +122,7 @@ func (t *TGBot) notifySubscribers(url string, message string) error {
 				"failed to send message to chat",
 				slog.Int64("chat_id", c.Id),
 				slog.String("message", message),
-				slog.String("error", err.Error()),
+				logger.Error(err),
 			)
 			return nil
 		}
@@ -151,7 +152,7 @@ func (t *TGBot) subscribeCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to add chat",
 			slog.String("command", "subscribe"),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		return nil
 	}
@@ -169,7 +170,7 @@ func (t *TGBot) unsubscribeCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to update chat",
 			slog.String("command", "unsubscribe"),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		return nil
 	}
@@ -187,7 +188,7 @@ func (t *TGBot) addSiteCommand(c telebot.Context) error {
 	if err != nil {
 		slog.Error(
 			"failed to convert url to expected",
-			slog.String("error", err.Error()),
+			logger.Error(err),
 			slog.String("url", url),
 		)
 		return c.Reply("Invalid URL!")
@@ -200,7 +201,7 @@ func (t *TGBot) addSiteCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to add site",
 			slog.String("command", "add site"),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		return nil
 	}
@@ -218,7 +219,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 	if err != nil {
 		slog.Error(
 			"failed to convert url to expected",
-			slog.String("error", err.Error()),
+			logger.Error(err),
 			slog.String("url", url),
 		)
 		return c.Reply("Invalid URL!")
@@ -231,7 +232,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to delete site",
 			slog.String("command", "delete site"),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		return nil
 	}
@@ -250,7 +251,7 @@ func (t *TGBot) listCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to get all sites by chat id",
 			slog.String("command", "list"),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		return nil
 	}

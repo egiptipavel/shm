@@ -42,12 +42,12 @@ func New(dataSourceName string) (*sql.DB, error) {
 
 	db, err := connectToDB(ctx, dataSourceName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %s", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	err = initDB(ctx, db)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %s", err)
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
 	return db, nil

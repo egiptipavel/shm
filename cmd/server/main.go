@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"shm/internal/config"
+	"shm/internal/lib/logger"
 	"shm/internal/server"
 	"shm/internal/storage/sqlite"
 )
@@ -14,7 +15,7 @@ func main() {
 
 	db, err := sqlite.New(config.DatabaseFile)
 	if err != nil {
-		slog.Error("failed to create database", slog.String("error", err.Error()))
+		slog.Error("failed to create database", logger.Error(err))
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -22,6 +23,6 @@ func main() {
 	server := server.New(db, config.Address)
 	slog.Info("starting http server", slog.String("address", config.Address))
 	if err := server.Start(); err != http.ErrServerClosed {
-		slog.Error("error from http server", slog.String("error", err.Error()))
+		slog.Error("error from http server", logger.Error(err))
 	}
 }

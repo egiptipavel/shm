@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"shm/internal/lib/logger"
 	"shm/internal/model"
 	"shm/internal/repository"
 	"shm/internal/server/middleware"
@@ -32,10 +33,10 @@ func New(db *sql.DB, address string) *Server {
 		sites: repository.NewSitesRepo(db),
 	}
 
-	router.HandleFunc("GET /site", s.getSites)
-	router.HandleFunc("GET /site/{id}", s.getSite)
-	router.HandleFunc("POST /site", s.addSite)
-	router.HandleFunc("DELETE /site/{id}", s.deleteSite)
+	router.HandleFunc("GET /sites", s.getSites)
+	router.HandleFunc("GET /sites/{id}", s.getSite)
+	router.HandleFunc("POST /sites", s.addSite)
+	router.HandleFunc("DELETE /sites/{id}", s.deleteSite)
 
 	return s
 }
@@ -50,7 +51,7 @@ func (s *Server) getSites(w http.ResponseWriter, r *http.Request) {
 
 	sites, err := s.sites.GetAllSites(ctx)
 	if err != nil {
-		slog.Error("failed to get all monitored sites", slog.String("error", err.Error()))
+		slog.Error("failed to get all monitored sites", logger.Error(err))
 		response.WriteError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -62,7 +63,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 	strId := r.PathValue("id")
 	id, err := strconv.Atoi(strId)
 	if err != nil {
-		slog.Error("invalid id", slog.String("error", err.Error()))
+		slog.Error("invalid id", logger.Error(err))
 		response.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid id"))
 		return
 	}
@@ -79,7 +80,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 		slog.Error(
 			"failed to get site by id",
 			slog.Int("id", id),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		response.WriteError(w, http.StatusInternalServerError, err)
 		return
@@ -91,7 +92,7 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addSite(w http.ResponseWriter, r *http.Request) {
 	var site model.Site
 	if err := request.ReadJSON(r, &site); err != nil {
-		slog.Error("invalid site", slog.String("error", err.Error()))
+		slog.Error("invalid site", logger.Error(err))
 		response.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid site"))
 		return
 	}
@@ -101,7 +102,7 @@ func (s *Server) addSite(w http.ResponseWriter, r *http.Request) {
 
 	err := s.sites.AddSite(ctx, site.Url)
 	if err != nil {
-		slog.Error("failed to add site", slog.String("error", err.Error()))
+		slog.Error("failed to add site", logger.Error(err))
 		response.WriteError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -113,7 +114,7 @@ func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
 	strId := r.PathValue("id")
 	id, err := strconv.Atoi(strId)
 	if err != nil {
-		slog.Error("invalid id", slog.String("error", err.Error()))
+		slog.Error("invalid id", logger.Error(err))
 		response.WriteError(w, http.StatusBadRequest, fmt.Errorf("invalid id"))
 		return
 	}
@@ -126,7 +127,7 @@ func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
 		slog.Error(
 			"failed to delete site by id",
 			slog.Int("id", id),
-			slog.String("error", err.Error()),
+			logger.Error(err),
 		)
 		response.WriteError(w, http.StatusInternalServerError, err)
 		return

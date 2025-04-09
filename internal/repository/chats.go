@@ -34,7 +34,10 @@ func (s *Chats) UpdateChat(ctx context.Context, chatId int64, isSub bool) error 
 	return err
 }
 
-func (s *Chats) GetAllSubscribedOnSiteChats(ctx context.Context, url string) ([]model.Chat, error) {
+func (s *Chats) GetAllSubscribedOnSiteChats(
+	ctx context.Context,
+	url string,
+) ([]model.Chat, error) {
 	rows, err := s.db.QueryContext(
 		ctx,
 		`SELECT c.id
