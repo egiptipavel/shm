@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"shm/internal/lib/logger"
 	"shm/internal/model"
+	"shm/internal/rabbitmq"
 	"shm/internal/repository"
 	"sync"
 	"syscall"
@@ -39,14 +40,7 @@ func New(db *sql.DB, intervalMins int) (*Checker, error) {
 		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
 
-	q, err := ch.QueueDeclare(
-		"checks", // name
-		false,    // durable
-		false,    // delete when unused
-		false,    // exclusive
-		false,    // no-wait
-		nil,      // arguments
-	)
+	q, err := rabbitmq.DeclareChecksQueue(ch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare a queue: %w", err)
 	}
@@ -62,6 +56,15 @@ func New(db *sql.DB, intervalMins int) (*Checker, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register a consumer: %w", err)
+	}
+
+	err = ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set QoS: %w", err)
 	}
 
 	return &Checker{

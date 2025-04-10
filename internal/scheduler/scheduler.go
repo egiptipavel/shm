@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"shm/internal/lib/logger"
 	"shm/internal/model"
+	"shm/internal/rabbitmq"
 	"shm/internal/repository"
 	"syscall"
 	"time"
@@ -36,14 +37,7 @@ func New(db *sql.DB, interval int) (*Scheduler, error) {
 		return nil, fmt.Errorf("failed to create channel: %w", err)
 	}
 
-	q, err := ch.QueueDeclare(
-		"checks", // name
-		false,    // durable
-		false,    // delete when unused
-		false,    // exclusive
-		false,    // no-wait
-		nil,      // arguments
-	)
+	q, err := rabbitmq.DeclareChecksQueue(ch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare a queue: %w", err)
 	}
