@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"shm/internal/broker/rabbitmq"
 	"shm/internal/lib/logger"
 	"shm/internal/model"
-	"shm/internal/rabbitmq"
 	"shm/internal/repository"
 	"sync"
 	"syscall"
@@ -21,55 +21,20 @@ import (
 )
 
 type Checker struct {
-	conn         *amqp.Connection
-	ch           *amqp.Channel
+	broker       *rabbitmq.RabbitMQ
 	msgs         <-chan amqp.Delivery
 	results      *repository.Results
 	sites        *repository.Sites
 	intervalMins int
 }
 
-func New(db *sql.DB, intervalMins int) (*Checker, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+func New(db *sql.DB, broker *rabbitmq.RabbitMQ, intervalMins int) (*Checker, error) {
+	msgs, err := broker.ConsumeChecks()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+		return nil, fmt.Errorf("failed to register a consumer for checks: %w", err)
 	}
-
-	ch, err := conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create channel: %w", err)
-	}
-
-	q, err := rabbitmq.DeclareChecksQueue(ch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to declare a queue: %w", err)
-	}
-
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register a consumer: %w", err)
-	}
-
-	err = ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set QoS: %w", err)
-	}
-
 	return &Checker{
-		conn:         conn,
-		ch:           ch,
+		broker:       broker,
 		msgs:         msgs,
 		results:      repository.NewResultsRepo(db),
 		sites:        repository.NewSitesRepo(db),
@@ -99,7 +64,7 @@ func (c *Checker) Start() {
 					var site model.Site
 					err := json.Unmarshal(msg.Body, &site)
 					if err != nil {
-						slog.Error("failed to get site", logger.Error(err))
+						slog.Error("failed to parse site", logger.Error(err))
 						return
 					}
 					c.monitorSite(site)
@@ -132,6 +97,11 @@ func (c *Checker) monitorSite(site model.Site) {
 	cancel()
 	if err != nil {
 		slog.Error("failed to add check result to storage", logger.Error(err))
+	}
+
+	err = c.sendResult(result)
+	if err != nil {
+		slog.Error("failed to send check result to broker", logger.Error(err))
 	}
 }
 
@@ -168,7 +138,17 @@ func (c *Checker) checkSite(site model.Site) (result model.CheckResult, err erro
 	}, nil
 }
 
-func (c *Checker) Close() {
-	c.ch.Close()
-	c.conn.Close()
+func (c *Checker) sendResult(result model.CheckResult) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	body, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return c.broker.PublishToResults(ctx, amqp.Publishing{
+		ContentType: "application/json",
+		Body:        body,
+	})
 }

@@ -3,27 +3,36 @@ package telegram
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/signal"
+	"shm/internal/broker/rabbitmq"
 	"shm/internal/lib/logger"
 	urlpkg "shm/internal/lib/url"
 	"shm/internal/model"
 	"shm/internal/repository"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	"gopkg.in/telebot.v4"
 )
 
 type TGBot struct {
 	bot     *telebot.Bot
+	broker  *rabbitmq.RabbitMQ
 	chats   *repository.Chats
 	results *repository.Results
 	sites   *repository.Sites
 }
 
-func New(token string, db *sql.DB) (*TGBot, error) {
+func New(token string, db *sql.DB, broker *rabbitmq.RabbitMQ) (*TGBot, error) {
 	bot, err := telebot.NewBot(telebot.Settings{
 		Token:  token,
 		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
@@ -33,10 +42,11 @@ func New(token string, db *sql.DB) (*TGBot, error) {
 	}
 
 	t := &TGBot{
-		bot,
-		repository.NewChatsRepo(db),
-		repository.NewResultsRepo(db),
-		repository.NewSitesRepo(db),
+		bot:     bot,
+		broker:  broker,
+		chats:   repository.NewChatsRepo(db),
+		results: repository.NewResultsRepo(db),
+		sites:   repository.NewSitesRepo(db),
 	}
 
 	bot.Handle("/start", t.startCommand)
@@ -49,8 +59,56 @@ func New(token string, db *sql.DB) (*TGBot, error) {
 	return t, nil
 }
 
-func (t *TGBot) Start() {
-	t.bot.Start()
+func (t *TGBot) Start() error {
+	results, err := t.broker.ConsumeResults()
+	if err != nil {
+		return fmt.Errorf("failed to register a consumer for checks: %w", err)
+	}
+
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	exit := make(chan os.Signal, 1)
+	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t.handleResults(done, results)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t.bot.Start()
+	}()
+
+	s := <-exit
+	slog.Info("exit signal was received", slog.String("signal", s.String()))
+	close(done)
+	t.bot.Stop()
+	wg.Wait()
+
+	return nil
+}
+
+func (t *TGBot) handleResults(done <-chan struct{}, results <-chan amqp.Delivery) {
+	for {
+		select {
+		case <-done:
+			return
+		case msg, ok := <-results:
+			if !ok {
+				return
+			}
+			var result model.CheckResult
+			err := json.Unmarshal(msg.Body, &result)
+			if err != nil {
+				slog.Error("failed to parse check result", logger.Error(err))
+				return
+			}
+			t.Notify(result)
+		}
+	}
 }
 
 func (t *TGBot) Notify(result model.CheckResult) error {

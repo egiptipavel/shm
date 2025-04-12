@@ -16,6 +16,7 @@ func init() {
 
 type Config struct {
 	DatabaseFile  string
+	RabbitMQ      string
 	TelegramToken string
 	Address       string
 	IntervalMins  int
@@ -24,6 +25,7 @@ type Config struct {
 func New() Config {
 	return Config{
 		DatabaseFile:  getEnv("DATABASE_FILE", "storage/shm.db"),
+		RabbitMQ:      getEnv("RABBITMQ", "amqp://guest:guest@localhost:5672/"),
 		TelegramToken: getEnv("TELEGRAM_TOKEN", ""),
 		Address:       getEnv("ADDRESS", "localhost:8080"),
 		IntervalMins:  getEnvAsInt("REQUEST_INTERVAL_MINS", 1),

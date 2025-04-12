@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"shm/internal/broker/rabbitmq"
 	"shm/internal/lib/logger"
 	"shm/internal/model"
-	"shm/internal/rabbitmq"
 	"shm/internal/repository"
 	"syscall"
 	"time"
@@ -19,43 +19,24 @@ import (
 )
 
 type Scheduler struct {
-	conn         *amqp.Connection
-	ch           *amqp.Channel
-	q            amqp.Queue
+	broker       *rabbitmq.RabbitMQ
 	sites        *repository.Sites
 	intervalMins int
 }
 
-func New(db *sql.DB, interval int) (*Scheduler, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-
-	ch, err := conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create channel: %w", err)
-	}
-
-	q, err := rabbitmq.DeclareChecksQueue(ch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to declare a queue: %w", err)
-	}
-
+func New(db *sql.DB, broker *rabbitmq.RabbitMQ, interval int) *Scheduler {
 	return &Scheduler{
-		conn:         conn,
-		ch:           ch,
-		q:            q,
+		broker:       broker,
 		sites:        repository.NewSitesRepo(db),
 		intervalMins: interval,
-	}, nil
+	}
 }
 
 func (s *Scheduler) Start() {
 	exit := make(chan os.Signal, 1)
 	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
 
-loop2:
+loop:
 	for {
 		start := time.Now()
 
@@ -69,12 +50,12 @@ loop2:
 			select {
 			case s := <-exit:
 				slog.Info("exit signal was received", slog.String("signal", s.String()))
-				break loop2
+				break loop
 			default:
 				err = s.sendSite(site)
 				if err != nil {
 					slog.Error("failed to send site", logger.Error(err))
-					break loop2
+					break loop
 				}
 				slog.Info("successfully sending site to queue", logger.Site(site))
 			}
@@ -84,7 +65,7 @@ loop2:
 		case <-time.After(time.Duration(s.intervalMins)*time.Minute - time.Since(start)):
 		case s := <-exit:
 			slog.Info("exit signal was received", slog.String("signal", s.String()))
-			break loop2
+			break loop
 		}
 	}
 }
@@ -105,13 +86,8 @@ func (s *Scheduler) sendSite(site model.Site) error {
 		return fmt.Errorf("failed to marshal site: %w", err)
 	}
 
-	return s.ch.PublishWithContext(ctx, "", s.q.Name, false, false, amqp.Publishing{
+	return s.broker.PublishToChecks(ctx, amqp.Publishing{
 		ContentType: "application/json",
 		Body:        body,
 	})
-}
-
-func (s *Scheduler) Close() {
-	s.ch.Close()
-	s.conn.Close()
 }
