@@ -3,11 +3,10 @@ package main
 import (
 	"log/slog"
 	"os"
-	"shm/internal/broker/rabbitmq"
 	"shm/internal/config"
 	"shm/internal/lib/logger"
+	"shm/internal/lib/setup"
 	"shm/internal/notifier/telegram"
-	"shm/internal/storage/sqlite"
 )
 
 func main() {
@@ -17,20 +16,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("connecting to database")
-	db, err := sqlite.New(config.DatabaseFile)
-	if err != nil {
-		slog.Error("failed to create database", logger.Error(err))
-		os.Exit(1)
-	}
+	db := setup.ConnectToSQLite(config.DatabaseFile)
 	defer db.Close()
 
-	slog.Info("connecting to message broker")
-	broker, err := rabbitmq.New(config.RabbitMQ)
-	if err != nil {
-		slog.Error("failed to connect to RabbitMQ", logger.Error(err))
-		os.Exit(1)
-	}
+	broker := setup.ConnectToRabbitMQ(config.RabbitMQ)
 	defer broker.Close()
 
 	tgbot, err := telegram.New(config.TelegramToken, db, broker)

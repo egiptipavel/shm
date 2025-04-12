@@ -3,21 +3,16 @@ package main
 import (
 	"log/slog"
 	"net/http"
-	"os"
 	"shm/internal/config"
 	"shm/internal/lib/logger"
+	"shm/internal/lib/setup"
 	"shm/internal/server"
-	"shm/internal/storage/sqlite"
 )
 
 func main() {
 	config := config.New()
 
-	db, err := sqlite.New(config.DatabaseFile)
-	if err != nil {
-		slog.Error("failed to create database", logger.Error(err))
-		os.Exit(1)
-	}
+	db := setup.ConnectToSQLite(config.DatabaseFile)
 	defer db.Close()
 
 	server := server.New(db, config.Address)
