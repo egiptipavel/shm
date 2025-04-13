@@ -8,10 +8,11 @@ import (
 )
 
 type RabbitMQ struct {
-	conn    *amqp.Connection
-	ch      *amqp.Channel
-	checksQ amqp.Queue
-	resultQ amqp.Queue
+	conn           *amqp.Connection
+	ch             *amqp.Channel
+	checksQ        amqp.Queue
+	resultQ        amqp.Queue
+	notificationsQ amqp.Queue
 }
 
 func New(url string) (*RabbitMQ, error) {
@@ -44,11 +45,17 @@ func New(url string) (*RabbitMQ, error) {
 		return nil, fmt.Errorf("failed to declare a results queue: %w", err)
 	}
 
+	notificationsQ, err := declareNotificationsQueue(ch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare a notifications queue: %w", err)
+	}
+
 	return &RabbitMQ{
-		conn:    conn,
-		ch:      ch,
-		checksQ: checksQ,
-		resultQ: resultsQ,
+		conn:           conn,
+		ch:             ch,
+		checksQ:        checksQ,
+		resultQ:        resultsQ,
+		notificationsQ: notificationsQ,
 	}, nil
 }
 
@@ -71,6 +78,17 @@ func declareResultsQueue(ch *amqp.Channel) (amqp.Queue, error) {
 		false,     // exclusive
 		false,     // no-wait
 		nil,       // arguments
+	)
+}
+
+func declareNotificationsQueue(ch *amqp.Channel) (amqp.Queue, error) {
+	return ch.QueueDeclare(
+		"notifications", // name
+		false,           // durable
+		false,           // delete when unused
+		false,           // exclusive
+		false,           // no-wait
+		nil,             // arguments
 	)
 }
 
@@ -98,12 +116,28 @@ func (r *RabbitMQ) ConsumeResults() (<-chan amqp.Delivery, error) {
 	)
 }
 
+func (r *RabbitMQ) ConsumeNotifications() (<-chan amqp.Delivery, error) {
+	return r.ch.Consume(
+		r.notificationsQ.Name, // queue
+		"",                    // consumer
+		true,                  // auto-ack
+		false,                 // exclusive
+		false,                 // no-local
+		false,                 // no-wait
+		nil,                   // args
+	)
+}
+
 func (r *RabbitMQ) PublishToChecks(ctx context.Context, msg amqp.Publishing) error {
 	return r.ch.PublishWithContext(ctx, "", r.checksQ.Name, false, false, msg)
 }
 
 func (r *RabbitMQ) PublishToResults(ctx context.Context, msg amqp.Publishing) error {
 	return r.ch.PublishWithContext(ctx, "", r.resultQ.Name, false, false, msg)
+}
+
+func (r *RabbitMQ) PublishToNotifications(ctx context.Context, msg amqp.Publishing) error {
+	return r.ch.PublishWithContext(ctx, "", r.notificationsQ.Name, false, false, msg)
 }
 
 func (r *RabbitMQ) Close() {

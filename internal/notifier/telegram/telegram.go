@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,11 +24,10 @@ import (
 )
 
 type TGBot struct {
-	bot     *telebot.Bot
-	broker  *rabbitmq.RabbitMQ
-	chats   *repository.Chats
-	results *repository.Results
-	sites   *repository.Sites
+	bot    *telebot.Bot
+	broker *rabbitmq.RabbitMQ
+	chats  *repository.Chats
+	sites  *repository.Sites
 }
 
 func New(token string, db *sql.DB, broker *rabbitmq.RabbitMQ) (*TGBot, error) {
@@ -42,11 +40,10 @@ func New(token string, db *sql.DB, broker *rabbitmq.RabbitMQ) (*TGBot, error) {
 	}
 
 	t := &TGBot{
-		bot:     bot,
-		broker:  broker,
-		chats:   repository.NewChatsRepo(db),
-		results: repository.NewResultsRepo(db),
-		sites:   repository.NewSitesRepo(db),
+		bot:    bot,
+		broker: broker,
+		chats:  repository.NewChatsRepo(db),
+		sites:  repository.NewSitesRepo(db),
 	}
 
 	bot.Handle("/start", t.startCommand)
@@ -60,9 +57,9 @@ func New(token string, db *sql.DB, broker *rabbitmq.RabbitMQ) (*TGBot, error) {
 }
 
 func (t *TGBot) Start() error {
-	results, err := t.broker.ConsumeResults()
+	notifications, err := t.broker.ConsumeNotifications()
 	if err != nil {
-		return fmt.Errorf("failed to register a consumer for checks: %w", err)
+		return fmt.Errorf("failed to register a consumer for notifications: %w", err)
 	}
 
 	var wg sync.WaitGroup
@@ -73,7 +70,7 @@ func (t *TGBot) Start() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		t.handleResults(done, results)
+		t.handleNotifications(done, notifications)
 	}()
 
 	wg.Add(1)
@@ -91,95 +88,45 @@ func (t *TGBot) Start() error {
 	return nil
 }
 
-func (t *TGBot) handleResults(done <-chan struct{}, results <-chan amqp.Delivery) {
+func (t *TGBot) handleNotifications(done <-chan struct{}, notifications <-chan amqp.Delivery) {
 	for {
 		select {
 		case <-done:
 			return
-		case msg, ok := <-results:
+		case msg, ok := <-notifications:
 			if !ok {
 				return
 			}
-			var result model.CheckResult
-			err := json.Unmarshal(msg.Body, &result)
+			var notification model.Notification
+			err := json.Unmarshal(msg.Body, &notification)
 			if err != nil {
-				slog.Error("failed to parse check result", logger.Error(err))
+				slog.Error("failed to parse notification", logger.Error(err))
 				return
 			}
-			t.Notify(result)
+			t.Notify(notification)
 		}
 	}
 }
 
-func (t *TGBot) Notify(result model.CheckResult) error {
+func (t *TGBot) Notify(notification model.Notification) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	lastResults, err := t.results.GetLastTwoResultsForSite(ctx, result.Site)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("failed to get last two results for site: %w", err)
-	}
-
-	if len(lastResults) == 0 {
-		return nil
-	}
-
-	var message string
-	if len(lastResults) == 1 {
-		if !result.IsSuccessful() && !lastResults[0].IsSuccessful() {
-			message = fmt.Sprintf(
-				"Bad news. The website %s is temporarily unavailable.",
-				result.Site.Url,
-			)
-		}
-	} else if result.IsSuccessful() &&
-		!lastResults[0].IsSuccessful() &&
-		!lastResults[1].IsSuccessful() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		lastSuccessfulResult, err := t.results.GetLastSuccessfulResultForSite(ctx, result.Site)
-		cancel()
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("failed to get last successful result for site: %w", err)
-		}
-
-		if err == nil {
-			message = fmt.Sprintf(
-				"Good news! The website %s is back up after %d minutes.",
-				result.Site.Url,
-				int(time.Since(lastSuccessfulResult.Time).Minutes()),
-			)
-		} else {
-			message = fmt.Sprintf("Good news! The website %s is back up.", result.Site.Url)
-		}
-	} else if !result.IsSuccessful() &&
-		!lastResults[0].IsSuccessful() &&
-		lastResults[1].IsSuccessful() {
-		message = fmt.Sprintf(
-			"Bad news. The website %s is temporarily unavailable.",
-			result.Site.Url,
-		)
-	}
-
-	if message != "" {
-		return t.notifySubscribers(result.Site.Url, message)
-	}
-	return nil
-}
-
-func (t *TGBot) notifySubscribers(url string, message string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	chats, err := t.chats.GetAllSubscribedOnSiteChats(ctx, url)
+	chats, err := t.chats.GetAllSubscribedOnSiteChats(ctx, notification.Url)
 	cancel()
 	if err != nil {
 		return err
 	}
 
 	for _, c := range chats {
-		slog.Info("notify subscriber", slog.Int64("chat_id", c.Id), slog.String("message", message))
-		if _, err = t.bot.Send(telebot.ChatID(c.Id), message); err != nil {
+		slog.Info(
+			"notify subscriber",
+			slog.Int64("chat_id", c.Id),
+			slog.String("message", notification.Message),
+		)
+		if _, err = t.bot.Send(telebot.ChatID(c.Id), notification.Message); err != nil {
 			slog.Error(
 				"failed to send message to chat",
 				slog.Int64("chat_id", c.Id),
-				slog.String("message", message),
+				slog.String("message", notification.Message),
 				logger.Error(err),
 			)
 			return nil

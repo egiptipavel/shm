@@ -24,7 +24,7 @@ func (r *Results) AddResult(ctx context.Context, result model.CheckResult) error
 	return err
 }
 
-func (r *Results) GetLastTwoResultsForSite(
+func (r *Results) GetLastThreeResultsForSite(
 	ctx context.Context,
 	site model.Site,
 ) ([]model.CheckResult, error) {
@@ -36,7 +36,7 @@ func (r *Results) GetLastTwoResultsForSite(
 		ON c.site_id = s.id
 		WHERE s.id = ?
 		ORDER BY c.time DESC
-		LIMIT 2`,
+		LIMIT 3`,
 		site.Id,
 	)
 	if err != nil {
@@ -65,7 +65,7 @@ func (r *Results) GetLastTwoResultsForSite(
 	return results, nil
 }
 
-func (r *Results) GetLastSuccessfulResultForSite(
+func (r *Results) GetSecondToLastSuccessfulResultForSite(
 	ctx context.Context,
 	site model.Site,
 ) (model.CheckResult, error) {
@@ -77,7 +77,7 @@ func (r *Results) GetLastSuccessfulResultForSite(
 		ON c.site_id = s.id
 		WHERE s.id = ? AND c.code = 200
 		ORDER BY c.time DESC
-		LIMIT 1`,
+		LIMIT 1 OFFSET 1`,
 		site.Id,
 	).Scan(
 		&result.Site.Id,
