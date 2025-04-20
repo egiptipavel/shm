@@ -1,0 +1,82 @@
+services:
+  alert:
+    build:
+      target: alert
+    environment:
+      RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
+    volumes:
+      - storage:/shm/storage
+    secrets:
+      - rabbitmq-env-config
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  checker:
+    build:
+      target: checker
+    environment:
+      RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
+    volumes:
+      - storage:/shm/storage
+    secrets:
+      - rabbitmq-env-config
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      target: scheduler
+    environment:
+      RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
+    volumes:
+      - storage:/shm/storage
+    secrets:
+      - rabbitmq-env-config
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  tgbot:
+    build:
+      target: tgbot
+    environment:
+      TELEGRAM_TOKEN_FILE: /run/secrets/telegram-token
+      RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
+    volumes:
+      - storage:/shm/storage
+    secrets:
+      - telegram-token
+      - rabbitmq-env-config
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:4.0.8-management
+    hostname: rabbitmq
+    ports:
+      - 15672:15672
+    environment:
+      RABBITMQ_CONF_ENV_FILE: /run/secrets/rabbitmq-env-config
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    secrets:
+      - rabbitmq-env-config
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  storage:
+  rabbitmq:
+
+secrets:
+  telegram-token:
+    environment: TELEGRAM_TOKEN
+  rabbitmq-env-config:
+    file: ./rabbitmq-env.conf

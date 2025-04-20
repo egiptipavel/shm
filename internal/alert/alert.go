@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
-	"shm/internal/lib/logger"
+	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/repository"
 	"syscall"
@@ -59,11 +59,11 @@ func (a *AlertService) handleResults(results <-chan amqp.Delivery, exit <-chan o
 			}
 			var result model.CheckResult
 			if err := json.Unmarshal(msg.Body, &result); err != nil {
-				slog.Error("failed to parse check result", logger.Error(err))
+				slog.Error("failed to parse check result", sl.Error(err))
 				return
 			}
 			if err := a.handleResult(result); err != nil {
-				slog.Error("failed to handle result", logger.CheckResult(result), logger.Error(err))
+				slog.Error("failed to handle result", sl.CheckResult(result), sl.Error(err))
 				return
 			}
 		}
@@ -122,10 +122,12 @@ func (a *AlertService) handleResult(result model.CheckResult) error {
 	}
 
 	if message != "" {
-		return a.sendNotification(model.Notification{
+		notification := model.Notification{
 			Url:     result.Site.Url,
 			Message: message,
-		})
+		}
+		slog.Info("sending notification", sl.Notification(notification))
+		return a.sendNotification(notification)
 	}
 	return nil
 }

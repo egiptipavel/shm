@@ -28,3 +28,6 @@ go.work.sum
 
 # Log files
 *.log
+
+# Configuration files
+*.conf

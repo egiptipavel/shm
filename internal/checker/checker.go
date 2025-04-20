@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
-	"shm/internal/lib/logger"
+	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/repository"
 	"sync"
@@ -64,7 +64,7 @@ func (c *Checker) Start() {
 					var site model.Site
 					err := json.Unmarshal(msg.Body, &site)
 					if err != nil {
-						slog.Error("failed to parse site", logger.Error(err))
+						slog.Error("failed to parse site", sl.Error(err))
 						return
 					}
 					c.monitorSite(site)
@@ -86,22 +86,22 @@ func (c *Checker) monitorSite(site model.Site) {
 		slog.Error(
 			"unsuccessful checking of site",
 			slog.String("url", site.Url),
-			logger.Error(err),
+			sl.Error(err),
 		)
 	} else {
-		slog.Info("successful checking of site", logger.CheckResult(result))
+		slog.Info("successful checking of site", sl.CheckResult(result))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	err = c.results.AddResult(ctx, result)
 	cancel()
 	if err != nil {
-		slog.Error("failed to add check result to storage", logger.Error(err))
+		slog.Error("failed to add check result to storage", sl.Error(err))
 	}
 
 	err = c.sendResult(result)
 	if err != nil {
-		slog.Error("failed to send check result to broker", logger.Error(err))
+		slog.Error("failed to send check result to broker", sl.Error(err))
 	}
 }
 

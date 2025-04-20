@@ -1,4 +1,4 @@
-package logger
+package sl
 
 import (
 	"log/slog"
@@ -21,5 +21,12 @@ func Site(site model.Site) slog.Attr {
 	return slog.Group("site",
 		slog.Int64("id", site.Id),
 		slog.String("url", site.Url),
+	)
+}
+
+func Notification(notification model.Notification) slog.Attr {
+	return slog.Group("notification",
+		slog.String("url", notification.Url),
+		slog.String("message", notification.Message),
 	)
 }

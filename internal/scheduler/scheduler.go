@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
-	"shm/internal/lib/logger"
+	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/repository"
 	"syscall"
@@ -42,7 +42,7 @@ loop:
 
 		sites, err := s.getSites()
 		if err != nil {
-			slog.Error("failed to get sites", logger.Error(err))
+			slog.Error("failed to get sites", sl.Error(err))
 			break
 		}
 
@@ -54,10 +54,10 @@ loop:
 			default:
 				err = s.sendSite(site)
 				if err != nil {
-					slog.Error("failed to send site", logger.Error(err))
+					slog.Error("failed to send site", sl.Error(err))
 					break loop
 				}
-				slog.Info("successfully sending site to queue", logger.Site(site))
+				slog.Info("successfully sending site to queue", sl.Site(site))
 			}
 		}
 

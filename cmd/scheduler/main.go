@@ -13,7 +13,12 @@ func main() {
 	db := setup.ConnectToSQLite(config.DatabaseFile)
 	defer db.Close()
 
-	broker := setup.ConnectToRabbitMQ(config.RabbitMQ)
+	broker := setup.ConnectToRabbitMQ(
+		config.RabbitMQUser,
+		config.RabbitMQPass,
+		config.RabbitMQHost,
+		config.RabbitMQPort,
+	)
 	defer broker.Close()
 
 	slog.Info("starting scheduler service")

@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
-	"shm/internal/lib/logger"
+	"shm/internal/lib/sl"
 	urlpkg "shm/internal/lib/url"
 	"shm/internal/model"
 	"shm/internal/repository"
@@ -100,7 +100,7 @@ func (t *TGBot) handleNotifications(done <-chan struct{}, notifications <-chan a
 			var notification model.Notification
 			err := json.Unmarshal(msg.Body, &notification)
 			if err != nil {
-				slog.Error("failed to parse notification", logger.Error(err))
+				slog.Error("failed to parse notification", sl.Error(err))
 				return
 			}
 			t.Notify(notification)
@@ -127,7 +127,7 @@ func (t *TGBot) Notify(notification model.Notification) error {
 				"failed to send message to chat",
 				slog.Int64("chat_id", c.Id),
 				slog.String("message", notification.Message),
-				logger.Error(err),
+				sl.Error(err),
 			)
 			return nil
 		}
@@ -157,7 +157,7 @@ func (t *TGBot) subscribeCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to add chat",
 			slog.String("command", "subscribe"),
-			logger.Error(err),
+			sl.Error(err),
 		)
 		return nil
 	}
@@ -175,7 +175,7 @@ func (t *TGBot) unsubscribeCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to update chat",
 			slog.String("command", "unsubscribe"),
-			logger.Error(err),
+			sl.Error(err),
 		)
 		return nil
 	}
@@ -193,7 +193,7 @@ func (t *TGBot) addSiteCommand(c telebot.Context) error {
 	if err != nil {
 		slog.Error(
 			"failed to convert url to expected",
-			logger.Error(err),
+			sl.Error(err),
 			slog.String("url", url),
 		)
 		return c.Reply("Invalid URL!")
@@ -206,7 +206,7 @@ func (t *TGBot) addSiteCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to add site",
 			slog.String("command", "add site"),
-			logger.Error(err),
+			sl.Error(err),
 		)
 		return nil
 	}
@@ -224,7 +224,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 	if err != nil {
 		slog.Error(
 			"failed to convert url to expected",
-			logger.Error(err),
+			sl.Error(err),
 			slog.String("url", url),
 		)
 		return c.Reply("Invalid URL!")
@@ -237,7 +237,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to delete site",
 			slog.String("command", "delete site"),
-			logger.Error(err),
+			sl.Error(err),
 		)
 		return nil
 	}
@@ -256,7 +256,7 @@ func (t *TGBot) listCommand(c telebot.Context) error {
 		slog.Error(
 			"failed to get all sites by chat id",
 			slog.String("command", "list"),
-			logger.Error(err),
+			sl.Error(err),
 		)
 		return nil
 	}
