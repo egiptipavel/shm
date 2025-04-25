@@ -6,13 +6,14 @@ import (
 	"log/slog"
 	"os"
 	"shm/internal/broker/rabbitmq"
+	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/storage/sqlite"
 )
 
-func ConnectToSQLite(dataSourceName string) *sql.DB {
+func ConnectToSQLite(config config.SQLiteConfig) *sql.DB {
 	slog.Info("connecting to SQLite")
-	db, err := sqlite.New(dataSourceName)
+	db, err := sqlite.New(config.File)
 	if err != nil {
 		slog.Error("failed to create database", sl.Error(err))
 		os.Exit(1)
@@ -20,9 +21,10 @@ func ConnectToSQLite(dataSourceName string) *sql.DB {
 	return db
 }
 
-func ConnectToRabbitMQ(user, pass, host, port string) *rabbitmq.RabbitMQ {
+func ConnectToRabbitMQ(config config.RabbitMQConfig) *rabbitmq.RabbitMQ {
 	slog.Info("connecting to RabbitMQ")
-	broker, err := rabbitmq.New(fmt.Sprintf("amqp://%s:%s@%s:%s/", user, pass, host, port))
+	url := fmt.Sprintf("amqp://%s:%s@%s:%s/", config.User, config.Pass, config.Host, config.Port)
+	broker, err := rabbitmq.New(url)
 	if err != nil {
 		slog.Error("failed to connect to RabbitMQ", sl.Error(err))
 		os.Exit(1)

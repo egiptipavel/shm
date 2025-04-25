@@ -10,23 +10,20 @@ import (
 )
 
 func main() {
-	config := config.New()
+	cfg := config.NewAlertServiceConfig()
 
-	db := setup.ConnectToSQLite(config.DatabaseFile)
+	db := setup.ConnectToSQLite(config.NewSQLiteConfig())
 	defer db.Close()
 
-	broker := setup.ConnectToRabbitMQ(
-		config.RabbitMQUser,
-		config.RabbitMQPass,
-		config.RabbitMQHost,
-		config.RabbitMQPort,
-	)
+	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
-	alert := alert.New(db, broker)
-	slog.Info("starting alert service")
-	if err := alert.Start(); err != nil {
-		slog.Error("error from alert service", sl.Error(err))
+	alert, err := alert.New(db, broker, cfg)
+	if err != nil {
+		slog.Error("failed to create alert service", sl.Error(err))
 		os.Exit(1)
 	}
+
+	slog.Info("starting alert service")
+	alert.Start()
 }

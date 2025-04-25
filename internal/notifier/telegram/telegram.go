@@ -4,46 +4,57 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
+	"shm/internal/config"
 	"shm/internal/lib/sl"
 	urlpkg "shm/internal/lib/url"
 	"shm/internal/model"
 	"shm/internal/repository"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"golang.org/x/sync/errgroup"
 
 	"gopkg.in/telebot.v4"
 )
 
 type TGBot struct {
-	bot    *telebot.Bot
-	broker *rabbitmq.RabbitMQ
-	chats  *repository.Chats
-	sites  *repository.Sites
+	bot           *telebot.Bot
+	broker        *rabbitmq.RabbitMQ
+	notifications <-chan amqp.Delivery
+	chats         *repository.Chats
+	sites         *repository.Sites
+	config        config.TelegramBotConfig
 }
 
-func New(token string, db *sql.DB, broker *rabbitmq.RabbitMQ) (*TGBot, error) {
+func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.TelegramBotConfig) (*TGBot, error) {
 	bot, err := telebot.NewBot(telebot.Settings{
-		Token:  token,
+		Token:  config.Token,
 		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	notifications, err := broker.ConsumeNotifications()
+	if err != nil {
+		return nil, fmt.Errorf("failed to register a consumer for notifications: %w", err)
+	}
+
 	t := &TGBot{
-		bot:    bot,
-		broker: broker,
-		chats:  repository.NewChatsRepo(db),
-		sites:  repository.NewSitesRepo(db),
+		bot:           bot,
+		broker:        broker,
+		notifications: notifications,
+		chats:         repository.NewChatsRepo(db),
+		sites:         repository.NewSitesRepo(db),
+		config:        config,
 	}
 
 	bot.Handle("/start", t.startCommand)
@@ -56,60 +67,54 @@ func New(token string, db *sql.DB, broker *rabbitmq.RabbitMQ) (*TGBot, error) {
 	return t, nil
 }
 
-func (t *TGBot) Start() error {
-	notifications, err := t.broker.ConsumeNotifications()
-	if err != nil {
-		return fmt.Errorf("failed to register a consumer for notifications: %w", err)
-	}
+func (t *TGBot) Start() {
+	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	g, ctx := errgroup.WithContext(ctx)
 
-	var wg sync.WaitGroup
-	done := make(chan struct{})
-	exit := make(chan os.Signal, 1)
-	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
+	g.Go(func() error {
+		return t.handleNotifications(ctx)
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		t.handleNotifications(done, notifications)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	g.Go(func() error {
 		t.bot.Start()
-	}()
+		return nil
+	})
 
-	s := <-exit
-	slog.Info("exit signal was received", slog.String("signal", s.String()))
-	close(done)
-	t.bot.Stop()
-	wg.Wait()
+	g.Go(func() error {
+		<-ctx.Done()
+		t.bot.Stop()
+		return nil
+	})
 
-	return nil
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("error from telegram bot", sl.Error(err))
+	}
 }
 
-func (t *TGBot) handleNotifications(done <-chan struct{}, notifications <-chan amqp.Delivery) {
+func (t *TGBot) handleNotifications(ctx context.Context) error {
 	for {
 		select {
-		case <-done:
-			return
-		case msg, ok := <-notifications:
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg, ok := <-t.notifications:
 			if !ok {
-				return
+				return fmt.Errorf("channel with messages was closed")
 			}
 			var notification model.Notification
-			err := json.Unmarshal(msg.Body, &notification)
-			if err != nil {
-				slog.Error("failed to parse notification", sl.Error(err))
-				return
+			if err := json.Unmarshal(msg.Body, &notification); err != nil {
+				return fmt.Errorf("failed to parse notification: %w", err)
 			}
-			t.Notify(notification)
+			if err := t.Notify(ctx, notification); err != nil {
+				return fmt.Errorf("failed to handle notification: %w", err)
+			}
 		}
 	}
 }
 
-func (t *TGBot) Notify(notification model.Notification) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (t *TGBot) Notify(ctx context.Context, notification model.Notification) error {
+	ctx, cancel := context.WithTimeout(ctx, t.config.DbQueryTimeoutSec)
 	chats, err := t.chats.GetAllSubscribedOnSiteChats(ctx, notification.Url)
 	cancel()
 	if err != nil {
@@ -118,18 +123,12 @@ func (t *TGBot) Notify(notification model.Notification) error {
 
 	for _, c := range chats {
 		slog.Info(
-			"notify subscriber",
+			"sending notification to subscriber",
 			slog.Int64("chat_id", c.Id),
 			slog.String("message", notification.Message),
 		)
 		if _, err = t.bot.Send(telebot.ChatID(c.Id), notification.Message); err != nil {
-			slog.Error(
-				"failed to send message to chat",
-				slog.Int64("chat_id", c.Id),
-				slog.String("message", notification.Message),
-				sl.Error(err),
-			)
-			return nil
+			return fmt.Errorf("failed to send message to chat: %w", err)
 		}
 	}
 
@@ -150,7 +149,7 @@ func (t *TGBot) startCommand(c telebot.Context) error {
 func (t *TGBot) subscribeCommand(c telebot.Context) error {
 	slog.Info("subscribe command", slog.Int64("chat_id", c.Chat().ID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
 	defer cancel()
 
 	if err := t.chats.AddChat(ctx, model.Chat{Id: c.Chat().ID}); err != nil {
@@ -168,7 +167,7 @@ func (t *TGBot) subscribeCommand(c telebot.Context) error {
 func (t *TGBot) unsubscribeCommand(c telebot.Context) error {
 	slog.Info("unsubscribe command", slog.Int64("chat_id", c.Chat().ID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
 	defer cancel()
 
 	if err := t.chats.UpdateChat(ctx, c.Chat().ID, false); err != nil {
@@ -199,7 +198,7 @@ func (t *TGBot) addSiteCommand(c telebot.Context) error {
 		return c.Reply("Invalid URL!")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
 	defer cancel()
 
 	if err := t.sites.AddSiteFromChat(ctx, chatId, url); err != nil {
@@ -230,7 +229,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 		return c.Reply("Invalid URL!")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
 	defer cancel()
 
 	if err := t.sites.DeleteSiteFromChat(ctx, chatId, url); err != nil {
@@ -248,7 +247,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 func (t *TGBot) listCommand(c telebot.Context) error {
 	slog.Info("list command", slog.Int64("chat_id", c.Chat().ID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
 	defer cancel()
 
 	sites, err := t.sites.GetAllSitesByChatId(ctx, c.Chat().ID)

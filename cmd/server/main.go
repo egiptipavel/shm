@@ -10,13 +10,13 @@ import (
 )
 
 func main() {
-	config := config.New()
+	cfg := config.NewServerConfig()
 
-	db := setup.ConnectToSQLite(config.DatabaseFile)
+	db := setup.ConnectToSQLite(config.NewSQLiteConfig())
 	defer db.Close()
 
-	server := server.New(db, config.ServerAddress)
-	slog.Info("starting http server", slog.String("address", config.ServerAddress))
+	server := server.New(db, cfg)
+	slog.Info("starting http server", slog.String("address", cfg.Address))
 	if err := server.Start(); err != http.ErrServerClosed {
 		slog.Error("error from http server", sl.Error(err))
 	}

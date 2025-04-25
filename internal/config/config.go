@@ -6,6 +6,7 @@ import (
 	"shm/internal/lib/sl"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -21,27 +22,17 @@ func init() {
 	}
 }
 
-type Config struct {
-	DatabaseFile  string
-	RabbitMQUser  string
-	RabbitMQPass  string
-	RabbitMQHost  string
-	RabbitMQPort  string
-	TelegramToken string
-	ServerAddress string
-	IntervalMins  int
+type CommonConfig struct {
+	DbQueryTimeoutSec      time.Duration
+	BrokerTimeoutSec       time.Duration
+	SiteResponseTimeoutSec time.Duration
 }
 
-func New() Config {
-	return Config{
-		DatabaseFile:  getEnv("DATABASE_FILE", "storage/shm.db"),
-		RabbitMQUser:  getEnv("RABBITMQ_DEFAULT_USER", "guest"),
-		RabbitMQPass:  getEnv("RABBITMQ_DEFAULT_PASS", "guest"),
-		RabbitMQHost:  getEnv("RABBITMQ_NODE_IP_ADDRESS", "rabbitmq"),
-		RabbitMQPort:  getEnv("RABBITMQ_NODE_PORT", "5672"),
-		TelegramToken: getEnv("TELEGRAM_TOKEN_FILE", ""),
-		ServerAddress: getEnv("SERVER_ADDRESS", "server:8080"),
-		IntervalMins:  getEnvAsInt("REQUEST_INTERVAL_MINS", 1),
+func NewCommonConfig() CommonConfig {
+	return CommonConfig{
+		DbQueryTimeoutSec:      time.Duration(getEnvAsInt("DATABASE_QUERY_TIMEOUT_SEC", 5)) * time.Second,
+		BrokerTimeoutSec:       time.Duration(getEnvAsInt("BROKER_TIMEOUT_SEC", 5)) * time.Second,
+		SiteResponseTimeoutSec: time.Duration(getEnvAsInt("SITE_RESPONSE_TIMEOUT_SEC", 5)) * time.Second,
 	}
 }
 
@@ -56,15 +47,25 @@ func getEnvAsInt(name string, defaultVal int) int {
 
 func getEnv(key string, defaultVal string) string {
 	if value, exists := os.LookupEnv(key); exists {
-		if strings.HasSuffix(key, "_FILE") {
-			content, err := os.ReadFile(value)
-			if err != nil {
-				slog.Error("failed to read file", sl.Error(err))
-				os.Exit(1)
-			}
-			return string(content)
-		}
 		return value
+	}
+
+	return defaultVal
+}
+
+func getEnvFromFile(key string, defaultVal string) string {
+	if !strings.HasSuffix(key, "_FILE") {
+		slog.Error("env variable with _FILE at the end was expected", slog.String("given", key))
+		os.Exit(1)
+	}
+
+	if value, exists := os.LookupEnv(key); exists {
+		content, err := os.ReadFile(value)
+		if err != nil {
+			slog.Error("failed to read file", sl.Error(err))
+			os.Exit(1)
+		}
+		return string(content)
 	}
 
 	return defaultVal

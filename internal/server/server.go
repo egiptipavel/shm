@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/repository"
@@ -20,17 +21,19 @@ import (
 type Server struct {
 	server *http.Server
 	sites  *repository.Sites
+	config config.ServerConfig
 }
 
-func New(db *sql.DB, address string) *Server {
+func New(db *sql.DB, config config.ServerConfig) *Server {
 	router := http.NewServeMux()
 
 	s := &Server{
 		server: &http.Server{
-			Addr:    address,
+			Addr:    config.Address,
 			Handler: middleware.Logging(router),
 		},
-		sites: repository.NewSitesRepo(db),
+		sites:  repository.NewSitesRepo(db),
+		config: config,
 	}
 
 	router.HandleFunc("GET /sites", s.getSites)

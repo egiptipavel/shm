@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
+	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/repository"
@@ -20,62 +21,68 @@ import (
 )
 
 type AlertService struct {
-	db      *sql.DB
-	broker  *rabbitmq.RabbitMQ
-	results *repository.Results
+	db           *sql.DB
+	broker       *rabbitmq.RabbitMQ
+	resultsQueue <-chan amqp.Delivery
+	resultsRepo  *repository.Results
+	config       config.AlertServiceConfig
 }
 
-func New(db *sql.DB, broker *rabbitmq.RabbitMQ) *AlertService {
-	return &AlertService{
-		db:      db,
-		broker:  broker,
-		results: repository.NewResultsRepo(db),
-	}
-}
-
-func (a *AlertService) Start() error {
-	results, err := a.broker.ConsumeResults()
+func New(
+	db *sql.DB,
+	broker *rabbitmq.RabbitMQ,
+	config config.AlertServiceConfig,
+) (*AlertService, error) {
+	resultsQueue, err := broker.ConsumeResults()
 	if err != nil {
-		return fmt.Errorf("failed to register a consumer for results: %w", err)
+		return nil, fmt.Errorf("failed to register a consumer for results: %w", err)
 	}
-
-	exit := make(chan os.Signal, 1)
-	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
-
-	a.handleResults(results, exit)
-
-	return nil
+	return &AlertService{
+		db:           db,
+		broker:       broker,
+		resultsQueue: resultsQueue,
+		resultsRepo:  repository.NewResultsRepo(db),
+		config:       config,
+	}, nil
 }
 
-func (a *AlertService) handleResults(results <-chan amqp.Delivery, exit <-chan os.Signal) {
+func (a *AlertService) Start() {
+	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := a.routine(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("error from alert service", sl.Error(err))
+	}
+}
+
+func (a *AlertService) routine(ctx context.Context) error {
 	for {
 		select {
-		case s := <-exit:
-			slog.Info("exit signal was received", slog.String("signal", s.String()))
-			return
-		case msg, ok := <-results:
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg, ok := <-a.resultsQueue:
 			if !ok {
-				return
+				return fmt.Errorf("channel with messages was closed")
 			}
 			var result model.CheckResult
 			if err := json.Unmarshal(msg.Body, &result); err != nil {
-				slog.Error("failed to parse check result", sl.Error(err))
-				return
+				return fmt.Errorf("failed to parse check result: %w", err)
 			}
-			if err := a.handleResult(result); err != nil {
-				slog.Error("failed to handle result", sl.CheckResult(result), sl.Error(err))
-				return
+			if err := a.handleResult(ctx, result); err != nil {
+				return fmt.Errorf("failed to handle check result: %w", err)
 			}
+			slog.Info("successful handling of check result", sl.CheckResult(result))
 		}
 	}
 }
 
-func (a *AlertService) handleResult(result model.CheckResult) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	lastResults, err := a.results.GetLastThreeResultsForSite(ctx, result.Site)
+func (a *AlertService) handleResult(ctx context.Context, result model.CheckResult) error {
+	ctx, cancel := context.WithTimeout(ctx, a.config.DbQueryTimeoutSec)
+	lastResults, err := a.resultsRepo.GetLastThreeResultsForSite(ctx, result.Site)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("failed to get last two results for site: %w", err)
+		return fmt.Errorf("failed to get last three results for site: %w", err)
 	}
 
 	var message string
@@ -95,11 +102,11 @@ func (a *AlertService) handleResult(result model.CheckResult) error {
 		if lastResults[0].IsSuccessful() &&
 			!lastResults[1].IsSuccessful() &&
 			!lastResults[2].IsSuccessful() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			successfulResult, err := a.results.GetSecondToLastSuccessfulResultForSite(ctx, result.Site)
+			ctx, cancel := context.WithTimeout(ctx, a.config.DbQueryTimeoutSec)
+			successfulResult, err := a.resultsRepo.GetSecondToLastSuccessfulResultForSite(ctx, result.Site)
 			cancel()
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("failed to get last successful result for site: %w", err)
+				return fmt.Errorf("failed to get second to last successful result for site: %w", err)
 			}
 
 			if err == nil {
@@ -127,20 +134,19 @@ func (a *AlertService) handleResult(result model.CheckResult) error {
 			Message: message,
 		}
 		slog.Info("sending notification", sl.Notification(notification))
-		return a.sendNotification(notification)
+		return a.sendNotification(ctx, notification)
 	}
 	return nil
 }
 
-func (a *AlertService) sendNotification(notif model.Notification) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	body, err := json.Marshal(notif)
+func (a *AlertService) sendNotification(ctx context.Context, notification model.Notification) error {
+	body, err := json.Marshal(notification)
 	if err != nil {
 		return fmt.Errorf("failed to marshal notification: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, a.config.BrokerTimeoutSec)
+	defer cancel()
 	return a.broker.PublishToNotifications(ctx, amqp.Publishing{
 		ContentType: "application/json",
 		Body:        body,

@@ -8,19 +8,14 @@ import (
 )
 
 func main() {
-	config := config.New()
+	cfg := config.NewSchedulerConfig()
 
-	db := setup.ConnectToSQLite(config.DatabaseFile)
+	db := setup.ConnectToSQLite(config.NewSQLiteConfig())
 	defer db.Close()
 
-	broker := setup.ConnectToRabbitMQ(
-		config.RabbitMQUser,
-		config.RabbitMQPass,
-		config.RabbitMQHost,
-		config.RabbitMQPort,
-	)
+	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
 	slog.Info("starting scheduler service")
-	scheduler.New(db, broker, config.IntervalMins).Start()
+	scheduler.New(db, broker, cfg).Start()
 }

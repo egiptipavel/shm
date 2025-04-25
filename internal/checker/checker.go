@@ -4,109 +4,107 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"shm/internal/broker/rabbitmq"
+	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/repository"
-	"sync"
 	"syscall"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"golang.org/x/sync/errgroup"
 )
 
 type Checker struct {
-	broker       *rabbitmq.RabbitMQ
-	msgs         <-chan amqp.Delivery
-	results      *repository.Results
-	sites        *repository.Sites
-	intervalMins int
+	broker  *rabbitmq.RabbitMQ
+	msgs    <-chan amqp.Delivery
+	results *repository.Results
+	sites   *repository.Sites
+	config  config.CheckerConfig
 }
 
-func New(db *sql.DB, broker *rabbitmq.RabbitMQ, intervalMins int) (*Checker, error) {
+func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.CheckerConfig) (*Checker, error) {
 	msgs, err := broker.ConsumeChecks()
 	if err != nil {
 		return nil, fmt.Errorf("failed to register a consumer for checks: %w", err)
 	}
 	return &Checker{
-		broker:       broker,
-		msgs:         msgs,
-		results:      repository.NewResultsRepo(db),
-		sites:        repository.NewSitesRepo(db),
-		intervalMins: intervalMins,
+		broker:  broker,
+		msgs:    msgs,
+		results: repository.NewResultsRepo(db),
+		sites:   repository.NewSitesRepo(db),
+		config:  config,
 	}, nil
 }
 
 func (c *Checker) Start() {
-	var wg sync.WaitGroup
-	done := make(chan struct{})
-	exit := make(chan os.Signal, 1)
-	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
+	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	g, ctx := errgroup.WithContext(ctx)
 
-	for range 1000 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for {
-				select {
-				case <-done:
-					return
-				case msg, ok := <-c.msgs:
-					if !ok {
-						return
-					}
-					var site model.Site
-					err := json.Unmarshal(msg.Body, &site)
-					if err != nil {
-						slog.Error("failed to parse site", sl.Error(err))
-						return
-					}
-					c.monitorSite(site)
-				}
-			}
-		}()
+	for range c.config.Workers {
+		g.Go(func() error {
+			return c.workerRoutine(ctx)
+		})
 	}
 
-	s := <-exit
-	slog.Info("exit signal was received", slog.String("signal", s.String()))
-	close(done)
-
-	wg.Wait()
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Error("error from worker", sl.Error(err))
+	}
 }
 
-func (c *Checker) monitorSite(site model.Site) {
-	result, err := c.checkSite(site)
+func (c *Checker) workerRoutine(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case msg, ok := <-c.msgs:
+			if !ok {
+				return fmt.Errorf("channel with messages was closed")
+			}
+			var site model.Site
+			if err := json.Unmarshal(msg.Body, &site); err != nil {
+				return fmt.Errorf("failed to parse site: %w", err)
+			}
+			if err := c.monitorSite(ctx, site); err != nil {
+				return fmt.Errorf("failed to monitor site: %w", err)
+			}
+		}
+	}
+}
+
+func (c *Checker) monitorSite(ctx context.Context, site model.Site) error {
+	result, err := c.checkSite(ctx, site)
 	if err != nil {
-		slog.Error(
-			"unsuccessful checking of site",
-			slog.String("url", site.Url),
-			sl.Error(err),
-		)
+		slog.Error("unsuccessful checking of site", slog.String("url", site.Url), sl.Error(err))
 	} else {
 		slog.Info("successful checking of site", sl.CheckResult(result))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err = c.results.AddResult(ctx, result)
-	cancel()
-	if err != nil {
-		slog.Error("failed to add check result to storage", sl.Error(err))
+	if err = c.sendResultToDatabase(ctx, result); err != nil {
+		return fmt.Errorf("failed to send check result to database: %w", err)
 	}
 
-	err = c.sendResult(result)
-	if err != nil {
-		slog.Error("failed to send check result to broker", sl.Error(err))
+	if err = c.sendResultToBroker(ctx, result); err != nil {
+		return fmt.Errorf("failed to send check result to broker: %w", err)
 	}
+
+	return nil
 }
 
-func (c *Checker) checkSite(site model.Site) (result model.CheckResult, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (c *Checker) checkSite(
+	ctx context.Context,
+	site model.Site,
+) (result model.CheckResult, err error) {
+	ctx, cancel := context.WithTimeout(ctx, c.config.SiteResponseTimeoutSec)
 	defer cancel()
 
 	start := time.Now()
@@ -121,7 +119,6 @@ func (c *Checker) checkSite(site model.Site) (result model.CheckResult, err erro
 			Code:    sql.NullInt64{},
 		}, err
 	}
-
 	defer resp.Body.Close()
 
 	return model.CheckResult{
@@ -138,15 +135,20 @@ func (c *Checker) checkSite(site model.Site) (result model.CheckResult, err erro
 	}, nil
 }
 
-func (c *Checker) sendResult(result model.CheckResult) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func (c *Checker) sendResultToDatabase(ctx context.Context, result model.CheckResult) error {
+	ctx, cancel := context.WithTimeout(ctx, c.config.DbQueryTimeoutSec)
 	defer cancel()
+	return c.results.AddResult(ctx, result)
+}
 
+func (c *Checker) sendResultToBroker(ctx context.Context, result model.CheckResult) error {
 	body, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
+		return fmt.Errorf("failed to encode check result: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, c.config.BrokerTimeoutSec)
+	defer cancel()
 	return c.broker.PublishToResults(ctx, amqp.Publishing{
 		ContentType: "application/json",
 		Body:        body,

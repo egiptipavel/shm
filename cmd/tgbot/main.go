@@ -10,31 +10,24 @@ import (
 )
 
 func main() {
-	config := config.New()
-	if config.TelegramToken == "" {
+	cfg := config.NewTelegramBotConfig()
+	if cfg.Token == "" {
 		slog.Error("telegram token is not found")
 		os.Exit(1)
 	}
 
-	db := setup.ConnectToSQLite(config.DatabaseFile)
+	db := setup.ConnectToSQLite(config.NewSQLiteConfig())
 	defer db.Close()
 
-	broker := setup.ConnectToRabbitMQ(
-		config.RabbitMQUser,
-		config.RabbitMQPass,
-		config.RabbitMQHost,
-		config.RabbitMQPort,
-	)
+	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
-	tgbot, err := telegram.New(config.TelegramToken, db, broker)
+	tgbot, err := telegram.New(db, broker, cfg)
 	if err != nil {
 		slog.Error("failed to create tg bot", sl.Error(err))
 		os.Exit(1)
 	}
 
 	slog.Info("starting telegram bot")
-	if err = tgbot.Start(); err != nil {
-		slog.Error("error from telegram bot", sl.Error(err))
-	}
+	tgbot.Start()
 }

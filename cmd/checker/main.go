@@ -10,21 +10,16 @@ import (
 )
 
 func main() {
-	config := config.New()
+	cfg := config.NewCheckerConfig()
 
-	db := setup.ConnectToSQLite(config.DatabaseFile)
+	db := setup.ConnectToSQLite(config.NewSQLiteConfig())
 	defer db.Close()
 
-	broker := setup.ConnectToRabbitMQ(
-		config.RabbitMQUser,
-		config.RabbitMQPass,
-		config.RabbitMQHost,
-		config.RabbitMQPort,
-	)
+	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
 	slog.Info("creating checker service")
-	checker, err := checker.New(db, broker, config.IntervalMins)
+	checker, err := checker.New(db, broker, cfg)
 	if err != nil {
 		slog.Error("failed to create checker", sl.Error(err))
 		os.Exit(1)
