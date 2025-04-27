@@ -24,9 +24,10 @@ func (r *Results) AddResult(ctx context.Context, result model.CheckResult) error
 	return err
 }
 
-func (r *Results) GetLastThreeResultsForSite(
+func (r *Results) GetNLastResultsForSite(
 	ctx context.Context,
 	site model.Site,
+	n int,
 ) ([]model.CheckResult, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
@@ -36,8 +37,8 @@ func (r *Results) GetLastThreeResultsForSite(
 		ON c.site_id = s.id
 		WHERE s.id = ?
 		ORDER BY c.time DESC
-		LIMIT 3`,
-		site.Id,
+		LIMIT ?`,
+		site.Id, n,
 	)
 	if err != nil {
 		return nil, err
