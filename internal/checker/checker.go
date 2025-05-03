@@ -14,7 +14,7 @@ import (
 	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
-	"shm/internal/repository"
+	"shm/internal/service"
 	"syscall"
 	"time"
 
@@ -25,12 +25,17 @@ import (
 type Checker struct {
 	broker  *rabbitmq.RabbitMQ
 	msgs    <-chan amqp.Delivery
-	results *repository.Results
-	sites   *repository.Sites
+	results *service.ResultsService
+	sites   *service.SitesService
 	config  config.CheckerConfig
 }
 
-func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.CheckerConfig) (*Checker, error) {
+func New(
+	broker *rabbitmq.RabbitMQ,
+	results *service.ResultsService,
+	sites *service.SitesService,
+	config config.CheckerConfig,
+) (*Checker, error) {
 	msgs, err := broker.ConsumeChecks()
 	if err != nil {
 		return nil, fmt.Errorf("failed to register a consumer for checks: %w", err)
@@ -38,8 +43,8 @@ func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.CheckerConfig) (*C
 	return &Checker{
 		broker:  broker,
 		msgs:    msgs,
-		results: repository.NewResultsRepo(db),
-		sites:   repository.NewSitesRepo(db),
+		results: results,
+		sites:   sites,
 		config:  config,
 	}, nil
 }
@@ -89,7 +94,7 @@ func (c *Checker) monitorSite(ctx context.Context, site model.Site) error {
 		slog.Info("successful checking of site", sl.CheckResult(result))
 	}
 
-	if err = c.sendResultToDatabase(ctx, result); err != nil {
+	if err = c.results.AddResult(ctx, result); err != nil {
 		return fmt.Errorf("failed to send check result to database: %w", err)
 	}
 
@@ -133,12 +138,6 @@ func (c *Checker) checkSite(
 			Valid: true,
 		},
 	}, nil
-}
-
-func (c *Checker) sendResultToDatabase(ctx context.Context, result model.CheckResult) error {
-	ctx, cancel := context.WithTimeout(ctx, c.config.DbQueryTimeoutSec)
-	defer cancel()
-	return c.results.AddResult(ctx, result)
 }
 
 func (c *Checker) sendResultToBroker(ctx context.Context, result model.CheckResult) error {

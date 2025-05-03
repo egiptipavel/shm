@@ -4,12 +4,16 @@ services:
       target: alert
     environment:
       RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
-    volumes:
-      - storage:/shm/storage
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_DB: ${POSTGRES_DB}
     secrets:
       - rabbitmq-env-config
+      - postgres-password
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   checker:
@@ -17,12 +21,16 @@ services:
       target: checker
     environment:
       RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
-    volumes:
-      - storage:/shm/storage
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_DB: ${POSTGRES_DB}
     secrets:
       - rabbitmq-env-config
+      - postgres-password
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   scheduler:
@@ -30,12 +38,16 @@ services:
       target: scheduler
     environment:
       RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
-    volumes:
-      - storage:/shm/storage
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_DB: ${POSTGRES_DB}
     secrets:
       - rabbitmq-env-config
+      - postgres-password
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   tgbot:
@@ -44,13 +56,17 @@ services:
     environment:
       TELEGRAM_TOKEN_FILE: /run/secrets/telegram-token
       RABBITMQ_ENV_FILE: /run/secrets/rabbitmq-env-config
-    volumes:
-      - storage:/shm/storage
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_DB: ${POSTGRES_DB}
     secrets:
       - telegram-token
       - rabbitmq-env-config
+      - postgres-password
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   rabbitmq:
@@ -71,12 +87,34 @@ services:
       retries: 5
       start_period: 10s
 
+  postgres:
+    image: postgres:17.4
+    hostname: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    secrets:
+      - postgres-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
 volumes:
   storage:
   rabbitmq:
+  pgdata:
 
 secrets:
   telegram-token:
     environment: TELEGRAM_TOKEN
   rabbitmq-env-config:
     file: ./rabbitmq-env.conf
+  postgres-password:
+    environment: POSTGRES_PASSWORD

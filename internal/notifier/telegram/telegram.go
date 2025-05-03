@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +13,7 @@ import (
 	"shm/internal/lib/sl"
 	urlpkg "shm/internal/lib/url"
 	"shm/internal/model"
-	"shm/internal/repository"
+	"shm/internal/service"
 	"strings"
 	"syscall"
 	"time"
@@ -29,12 +28,17 @@ type TGBot struct {
 	bot           *telebot.Bot
 	broker        *rabbitmq.RabbitMQ
 	notifications <-chan amqp.Delivery
-	chats         *repository.Chats
-	sites         *repository.Sites
+	chats         *service.ChatsService
+	sites         *service.SitesService
 	config        config.TelegramBotConfig
 }
 
-func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.TelegramBotConfig) (*TGBot, error) {
+func New(
+	broker *rabbitmq.RabbitMQ,
+	chats *service.ChatsService,
+	sites *service.SitesService,
+	config config.TelegramBotConfig,
+) (*TGBot, error) {
 	bot, err := telebot.NewBot(telebot.Settings{
 		Token:  config.Token,
 		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
@@ -52,8 +56,8 @@ func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.TelegramBotConfig)
 		bot:           bot,
 		broker:        broker,
 		notifications: notifications,
-		chats:         repository.NewChatsRepo(db),
-		sites:         repository.NewSitesRepo(db),
+		chats:         chats,
+		sites:         sites,
 		config:        config,
 	}
 
@@ -114,9 +118,7 @@ func (t *TGBot) handleNotifications(ctx context.Context) error {
 }
 
 func (t *TGBot) Notify(ctx context.Context, notification model.Notification) error {
-	ctx, cancel := context.WithTimeout(ctx, t.config.DbQueryTimeoutSec)
 	chats, err := t.chats.GetAllSubscribedOnSiteChats(ctx, notification.Url)
-	cancel()
 	if err != nil {
 		return err
 	}
@@ -149,15 +151,8 @@ func (t *TGBot) startCommand(c telebot.Context) error {
 func (t *TGBot) subscribeCommand(c telebot.Context) error {
 	slog.Info("subscribe command", slog.Int64("chat_id", c.Chat().ID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	if err := t.chats.AddChat(ctx, model.Chat{Id: c.Chat().ID}); err != nil {
-		slog.Error(
-			"failed to add chat",
-			slog.String("command", "subscribe"),
-			sl.Error(err),
-		)
+	if err := t.chats.SubscribeChat(context.Background(), c.Chat().ID); err != nil {
+		slog.Error("failed to add chat", slog.String("command", "subscribe"), sl.Error(err))
 		return nil
 	}
 
@@ -167,15 +162,8 @@ func (t *TGBot) subscribeCommand(c telebot.Context) error {
 func (t *TGBot) unsubscribeCommand(c telebot.Context) error {
 	slog.Info("unsubscribe command", slog.Int64("chat_id", c.Chat().ID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	if err := t.chats.UpdateChat(ctx, c.Chat().ID, false); err != nil {
-		slog.Error(
-			"failed to update chat",
-			slog.String("command", "unsubscribe"),
-			sl.Error(err),
-		)
+	if err := t.chats.UnsubscribeChat(context.Background(), c.Chat().ID); err != nil {
+		slog.Error("failed to unsubscribe chat", slog.String("command", "unsubscribe"), sl.Error(err))
 		return nil
 	}
 
@@ -198,10 +186,7 @@ func (t *TGBot) addSiteCommand(c telebot.Context) error {
 		return c.Reply("Invalid URL!")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	if err := t.sites.AddSiteFromChat(ctx, chatId, url); err != nil {
+	if err := t.sites.AddSiteFromChat(context.Background(), chatId, url); err != nil {
 		slog.Error(
 			"failed to add site",
 			slog.String("command", "add site"),
@@ -229,10 +214,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 		return c.Reply("Invalid URL!")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	if err := t.sites.DeleteSiteFromChat(ctx, chatId, url); err != nil {
+	if err := t.sites.DeleteSiteFromChat(context.Background(), chatId, url); err != nil {
 		slog.Error(
 			"failed to delete site",
 			slog.String("command", "delete site"),
@@ -247,10 +229,7 @@ func (t *TGBot) deleteSiteCommand(c telebot.Context) error {
 func (t *TGBot) listCommand(c telebot.Context) error {
 	slog.Info("list command", slog.Int64("chat_id", c.Chat().ID))
 
-	ctx, cancel := context.WithTimeout(context.Background(), t.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	sites, err := t.sites.GetAllSitesByChatId(ctx, c.Chat().ID)
+	sites, err := t.sites.GetAllSitesByChatId(context.Background(), c.Chat().ID)
 	if err != nil {
 		slog.Error(
 			"failed to get all sites by chat id",

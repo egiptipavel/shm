@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,7 @@ import (
 	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
-	"shm/internal/repository"
+	"shm/internal/service"
 	"syscall"
 	"time"
 
@@ -22,14 +21,18 @@ import (
 
 type Scheduler struct {
 	broker *rabbitmq.RabbitMQ
-	sites  *repository.Sites
+	sites  *service.SitesService
 	config config.SchedulerConfig
 }
 
-func New(db *sql.DB, broker *rabbitmq.RabbitMQ, config config.SchedulerConfig) *Scheduler {
+func New(
+	broker *rabbitmq.RabbitMQ,
+	sites *service.SitesService,
+	config config.SchedulerConfig,
+) *Scheduler {
 	return &Scheduler{
 		broker: broker,
-		sites:  repository.NewSitesRepo(db),
+		sites:  sites,
 		config: config,
 	}
 }
@@ -53,7 +56,7 @@ func (s *Scheduler) routine(ctx context.Context) error {
 		case <-t.C:
 		}
 
-		sites, err := s.getSitesFromDatabase(ctx)
+		sites, err := s.sites.GetAllMonitoredSites(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get sites from database: %w", err)
 		}
@@ -71,12 +74,6 @@ func (s *Scheduler) routine(ctx context.Context) error {
 			slog.Info("successfully sending site to broker", sl.Site(site))
 		}
 	}
-}
-
-func (s *Scheduler) getSitesFromDatabase(ctx context.Context) ([]model.Site, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.config.DbQueryTimeoutSec)
-	defer cancel()
-	return s.sites.GetAllMonitoredSites(ctx)
 }
 
 func (s *Scheduler) sendSiteToBroker(ctx context.Context, site model.Site) error {

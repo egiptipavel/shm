@@ -2,7 +2,6 @@ package alert
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,7 @@ import (
 	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
-	"shm/internal/repository"
+	"shm/internal/service"
 	"syscall"
 	"time"
 
@@ -21,16 +20,15 @@ import (
 )
 
 type AlertService struct {
-	db           *sql.DB
-	broker       *rabbitmq.RabbitMQ
-	resultsQueue <-chan amqp.Delivery
-	resultsRepo  *repository.Results
-	config       config.AlertServiceConfig
+	broker         *rabbitmq.RabbitMQ
+	resultsQueue   <-chan amqp.Delivery
+	resultsService *service.ResultsService
+	config         config.AlertServiceConfig
 }
 
 func New(
-	db *sql.DB,
 	broker *rabbitmq.RabbitMQ,
+	results *service.ResultsService,
 	config config.AlertServiceConfig,
 ) (*AlertService, error) {
 	if config.NumberOrFailedChecks < 1 {
@@ -41,11 +39,10 @@ func New(
 		return nil, fmt.Errorf("failed to register a consumer for results: %w", err)
 	}
 	return &AlertService{
-		db:           db,
-		broker:       broker,
-		resultsQueue: resultsQueue,
-		resultsRepo:  repository.NewResultsRepo(db),
-		config:       config,
+		broker:         broker,
+		resultsQueue:   resultsQueue,
+		resultsService: results,
+		config:         config,
 	}, nil
 }
 
@@ -81,7 +78,9 @@ func (a *AlertService) routine(ctx context.Context) error {
 }
 
 func (a *AlertService) sendNotificationIfNeeded(ctx context.Context, site model.Site) error {
-	lastResults, err := a.getLastResults(ctx, site, a.config.NumberOrFailedChecks+1)
+	lastResults, err := a.resultsService.GetNLastResultsForSite(
+		ctx, site, a.config.NumberOrFailedChecks+1,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to get last results for site: %w", err)
 	}
@@ -108,7 +107,7 @@ func (a *AlertService) sendNotificationIfNeeded(ctx context.Context, site model.
 		if lastResults[0].IsSuccessful() && a.allChecksFailed(lastResults[1:]) {
 			slog.Info("website is back up", sl.Site(site))
 
-			successfulResult, err := a.getSecondToLastSuccessfulResult(ctx, site)
+			successfulResult, err := a.resultsService.GetSecondToLastSuccessfulResultForSite(ctx, site)
 			if err != nil {
 				return fmt.Errorf("failed to get second to last successful result for site: %w", err)
 			}
@@ -143,31 +142,6 @@ func (a *AlertService) sendNotificationIfNeeded(ctx context.Context, site model.
 		return a.sendNotification(ctx, notification)
 	}
 	return nil
-}
-
-func (a *AlertService) getLastResults(
-	ctx context.Context,
-	site model.Site,
-	number int,
-) ([]model.CheckResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, a.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	return a.resultsRepo.GetNLastResultsForSite(ctx, site, number)
-}
-
-func (a *AlertService) getSecondToLastSuccessfulResult(
-	ctx context.Context,
-	site model.Site,
-) (*model.CheckResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, a.config.DbQueryTimeoutSec)
-	defer cancel()
-
-	successfulResult, err := a.resultsRepo.GetSecondToLastSuccessfulResultForSite(ctx, site)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	return &successfulResult, nil
 }
 
 func (a *AlertService) allChecksFailed(results []model.CheckResult) bool {

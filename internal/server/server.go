@@ -2,29 +2,26 @@ package server
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
-	"shm/internal/repository"
 	"shm/internal/server/middleware"
 	"shm/internal/server/request"
 	"shm/internal/server/response"
+	"shm/internal/service"
 	"strconv"
-	"time"
 )
 
 type Server struct {
 	server *http.Server
-	sites  *repository.Sites
+	sites  *service.SitesService
 	config config.ServerConfig
 }
 
-func New(db *sql.DB, config config.ServerConfig) *Server {
+func New(sites *service.SitesService, config config.ServerConfig) *Server {
 	router := http.NewServeMux()
 
 	s := &Server{
@@ -32,7 +29,7 @@ func New(db *sql.DB, config config.ServerConfig) *Server {
 			Addr:    config.Address,
 			Handler: middleware.Logging(router),
 		},
-		sites:  repository.NewSitesRepo(db),
+		sites:  sites,
 		config: config,
 	}
 
@@ -49,10 +46,7 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) getSites(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	sites, err := s.sites.GetAllSites(ctx)
+	sites, err := s.sites.GetAllSites(context.Background())
 	if err != nil {
 		slog.Error("failed to get all monitored sites", sl.Error(err))
 		response.WriteError(w, http.StatusInternalServerError, err)
@@ -71,21 +65,13 @@ func (s *Server) getSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	site, err := s.sites.GetSiteById(ctx, int64(id))
+	site, err := s.sites.GetSiteById(context.Background(), int64(id))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			response.WriteError(w, http.StatusNotFound, fmt.Errorf("no site with such id"))
-			return
-		}
-		slog.Error(
-			"failed to get site by id",
-			slog.Int("id", id),
-			sl.Error(err),
-		)
+		slog.Error("failed to get site by id", slog.Int("id", id), sl.Error(err))
 		response.WriteError(w, http.StatusInternalServerError, err)
+		return
+	} else if site == nil {
+		response.WriteError(w, http.StatusNotFound, fmt.Errorf("no site with such id"))
 		return
 	}
 
@@ -100,10 +86,7 @@ func (s *Server) addSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := s.sites.AddSite(ctx, site.Url)
+	err := s.sites.AddSite(context.Background(), site.Url)
 	if err != nil {
 		slog.Error("failed to add site", sl.Error(err))
 		response.WriteError(w, http.StatusInternalServerError, err)
@@ -122,10 +105,7 @@ func (s *Server) deleteSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err = s.sites.DeleteSiteById(ctx, int64(id))
+	err = s.sites.DeleteSiteById(context.Background(), int64(id))
 	if err != nil {
 		slog.Error(
 			"failed to delete site by id",
