@@ -3,7 +3,9 @@ package config
 import (
 	"log/slog"
 	"os"
+	"shm/internal/db"
 	"shm/internal/lib/sl"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +25,7 @@ func init() {
 }
 
 type CommonConfig struct {
+	DbDriver               string
 	DbQueryTimeoutSec      time.Duration
 	BrokerTimeoutSec       time.Duration
 	SiteResponseTimeoutSec time.Duration
@@ -30,23 +33,51 @@ type CommonConfig struct {
 
 func NewCommonConfig() CommonConfig {
 	return CommonConfig{
+		DbDriver:               getEnvFrom("DATABASE_DRIVER", db.Drivers, "postgres"),
 		DbQueryTimeoutSec:      time.Duration(getEnvAsInt("DATABASE_QUERY_TIMEOUT_SEC", 5)) * time.Second,
 		BrokerTimeoutSec:       time.Duration(getEnvAsInt("BROKER_TIMEOUT_SEC", 5)) * time.Second,
 		SiteResponseTimeoutSec: time.Duration(getEnvAsInt("SITE_RESPONSE_TIMEOUT_SEC", 5)) * time.Second,
 	}
 }
 
-func getEnvAsInt(name string, defaultVal int) int {
-	valueStr := getEnv(name, "")
-	if value, err := strconv.Atoi(valueStr); err == nil {
+func getEnv(key string, defaultVal string) string {
+	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
 
 	return defaultVal
 }
 
-func getEnv(key string, defaultVal string) string {
+func getEnvAsInt(key string, defaultVal int) int {
+	valueStr := getEnv(key, "")
+	if valueStr == "" {
+		return defaultVal
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		slog.Error(
+			"failed to parse env variable as int",
+			slog.String("env_var", key),
+			slog.String("given", key),
+		)
+		os.Exit(1)
+	}
+
+	return value
+}
+
+func getEnvFrom(key string, values []string, defaultVal string) string {
 	if value, exists := os.LookupEnv(key); exists {
+		if !slices.Contains(values, value) {
+			slog.Error(
+				"unexpected value of env variable",
+				slog.String("env_var", key),
+				slog.String("value", value),
+				slog.Any("expected", strings.Join(values, " | ")),
+			)
+			os.Exit(1)
+		}
 		return value
 	}
 

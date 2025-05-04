@@ -27,3 +27,8 @@ CMD ["./server"]
 FROM base AS tgbot
 RUN go build -v -o tgbot cmd/tgbot/main.go
 CMD ["./tgbot"]
+
+FROM base AS migrator
+COPY /migrations /shm/migrations
+RUN go build -v -o migrator cmd/migrator/main.go
+CMD ["./migrator"]

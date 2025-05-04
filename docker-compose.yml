@@ -13,8 +13,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
 
   checker:
     build:
@@ -30,8 +30,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
 
   scheduler:
     build:
@@ -47,8 +47,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
 
   tgbot:
     build:
@@ -66,13 +66,14 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
 
   rabbitmq:
     image: rabbitmq:4.0.8-management
     hostname: rabbitmq
     ports:
+      - 5672:5672
       - 15672:15672
     environment:
       RABBITMQ_CONF_ENV_FILE: /run/secrets/rabbitmq-env-config
@@ -95,6 +96,8 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
       POSTGRES_DB: ${POSTGRES_DB}
       PGDATA: /var/lib/postgresql/data
+    ports:
+      - 5432:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
     secrets:
@@ -105,6 +108,21 @@ services:
       timeout: 10s
       retries: 5
       start_period: 10s
+
+  migrator:
+    build:
+      target: migrator
+    environment:
+      DATABASE_DRIVER: postgres
+      MIGRATIONS_FOLDER: migrations/postgres
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+      POSTGRES_DB: ${POSTGRES_DB}
+    secrets:
+      - postgres-password
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   storage:
