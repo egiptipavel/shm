@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"shm/internal/lib/sl"
@@ -35,9 +36,9 @@ type CommonConfig struct {
 func NewCommonConfig() CommonConfig {
 	return CommonConfig{
 		DbDriver:               getEnvFrom("DATABASE_DRIVER", drivers, "postgres"),
-		DbQueryTimeoutSec:      time.Duration(getEnvAsInt("DATABASE_QUERY_TIMEOUT_SEC", 5)) * time.Second,
-		BrokerTimeoutSec:       time.Duration(getEnvAsInt("BROKER_TIMEOUT_SEC", 5)) * time.Second,
-		SiteResponseTimeoutSec: time.Duration(getEnvAsInt("SITE_RESPONSE_TIMEOUT_SEC", 5)) * time.Second,
+		DbQueryTimeoutSec:      getEnvAsDuration("DATABASE_QUERY_TIMEOUT_SEC", 5*time.Second),
+		BrokerTimeoutSec:       getEnvAsDuration("BROKER_TIMEOUT_SEC", 5*time.Second),
+		SiteResponseTimeoutSec: getEnvAsDuration("SITE_RESPONSE_TIMEOUT_SEC", 5*time.Second),
 	}
 }
 
@@ -57,15 +58,48 @@ func getEnvAsInt(key string, defaultVal int) int {
 
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
-		slog.Error(
-			"failed to parse env variable as int",
-			slog.String("env_var", key),
-			slog.String("given", key),
-		)
+		slog.Error("failed to parse env variable as int", slog.String("env_var", key), sl.Error(err))
 		os.Exit(1)
 	}
 
 	return value
+}
+
+func getEnvAsDuration(key string, defaultVal time.Duration) time.Duration {
+	valueInt := getEnvAsInt(key, -1)
+	if valueInt == -1 {
+		return defaultVal
+	}
+
+	words := strings.Split(key, "_")
+	lastWord := words[len(words)-1]
+	timeUnit, err := toTimeUnit(lastWord)
+	if err != nil {
+		slog.Error("invalid env variable", slog.String("env_var", key))
+	}
+
+	return time.Duration(valueInt) * timeUnit
+}
+
+func toTimeUnit(s string) (time.Duration, error) {
+	var timeUnit time.Duration
+	switch s {
+	case "NS":
+		timeUnit = time.Nanosecond
+	case "US":
+		timeUnit = time.Microsecond
+	case "MS":
+		timeUnit = time.Millisecond
+	case "SEC":
+		timeUnit = time.Second
+	case "MIN":
+		timeUnit = time.Minute
+	case "HOUR":
+		timeUnit = time.Hour
+	default:
+		return 0, fmt.Errorf("unknown time unit: %s", s)
+	}
+	return timeUnit, nil
 }
 
 func getEnvFrom(key string, values []string, defaultVal string) string {

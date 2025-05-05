@@ -9,7 +9,7 @@ type SchedulerConfig struct {
 
 func NewSchedulerConfig() SchedulerConfig {
 	return SchedulerConfig{
-		IntervalMin:  time.Duration(getEnvAsInt("SCHEDULER_INTERVAL_MIN", 1)) * time.Minute,
+		IntervalMin:  getEnvAsDuration("SCHEDULER_INTERVAL_MIN", 1*time.Minute),
 		CommonConfig: NewCommonConfig(),
 	}
 }
