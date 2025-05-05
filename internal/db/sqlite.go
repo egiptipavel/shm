@@ -1,9 +1,11 @@
-package sqlite
+package db
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"shm/internal/repository"
+	repo "shm/internal/repository/sqlite"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -20,7 +22,7 @@ CREATE TABLE IF NOT EXISTS check_results(
 const chatsScheme = `
 CREATE TABLE IF NOT EXISTS chats(
 	id INTEGER PRIMARY KEY,
-	is_subscribed BOOLEAN CHECK (is_subscribed IN (0, 1)) 
+	is_subscribed BOOLEAN CHECK (is_subscribed IN (0, 1))
 )`
 
 const chatToSiteScheme = `
@@ -36,7 +38,14 @@ CREATE TABLE IF NOT EXISTS sites(
 	url TEXT UNIQUE NOT NULL
 )`
 
-func New(dataSourceName string) (*sql.DB, error) {
+type SQLite struct {
+	db      *sql.DB
+	chats   repository.ChatsProvider
+	results repository.ResultsProvider
+	sites   repository.SitesProvider
+}
+
+func NewSQLite(dataSourceName string) (*SQLite, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -50,7 +59,12 @@ func New(dataSourceName string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	return db, nil
+	return &SQLite{
+		db:      db,
+		chats:   repo.NewChatsRepo(db),
+		results: repo.NewResultsRepo(db),
+		sites:   repo.NewSitesRepo(db),
+	}, nil
 }
 
 func connectToDB(ctx context.Context, dataSourceName string) (*sql.DB, error) {
@@ -84,4 +98,24 @@ func initDB(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+func (s *SQLite) DB() *sql.DB {
+	return s.db
+}
+
+func (s *SQLite) ChatsRepo() repository.ChatsProvider {
+	return s.chats
+}
+
+func (s *SQLite) ResultsRepo() repository.ResultsProvider {
+	return s.results
+}
+
+func (s *SQLite) SitesRepo() repository.SitesProvider {
+	return s.sites
+}
+
+func (s *SQLite) Close() error {
+	return s.db.Close()
 }

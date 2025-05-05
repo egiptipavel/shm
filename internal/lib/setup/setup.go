@@ -1,20 +1,38 @@
 package setup
 
 import (
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
 	"shm/internal/broker/rabbitmq"
 	"shm/internal/config"
-	"shm/internal/db/postgres"
-	"shm/internal/db/sqlite"
+	"shm/internal/db"
 	"shm/internal/lib/sl"
 )
 
-func ConnectToSQLite(config config.SQLiteConfig) *sql.DB {
+type DatabaseCreator = func() db.Database
+
+var Drivers = map[string]DatabaseCreator{
+	"postgres": func() db.Database {
+		return connectToPostgres(config.NewPostgresConfig())
+	},
+	"sqlite": func() db.Database {
+		return connectToSQLite(config.NewSQLiteConfig())
+	},
+}
+
+func ConnectToDatabase(driverName string) db.Database {
+	dbCreator, exists := Drivers[driverName]
+	if !exists {
+		slog.Error("unknown database driver", slog.String("driver", driverName))
+		os.Exit(1)
+	}
+	return dbCreator()
+}
+
+func connectToSQLite(config config.SQLiteConfig) *db.SQLite {
 	slog.Info("connecting to SQLite")
-	db, err := sqlite.New(config.File)
+	db, err := db.NewSQLite(config.File)
 	if err != nil {
 		slog.Error("failed to create database", sl.Error(err))
 		os.Exit(1)
@@ -22,9 +40,13 @@ func ConnectToSQLite(config config.SQLiteConfig) *sql.DB {
 	return db
 }
 
-func ConnectToPostgreSQL(config config.PostgreSQLConfig) *sql.DB {
+func connectToPostgres(config config.PostgresConfig) *db.Postgres {
 	slog.Info("connecting to PostgreSQL")
-	db, err := postgres.New(config)
+	url := fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s",
+		config.User, config.Pass, config.Host, config.Port, config.Db,
+	)
+	db, err := db.NewPostgres(url)
 	if err != nil {
 		slog.Error("failed to create database", sl.Error(err))
 		os.Exit(1)

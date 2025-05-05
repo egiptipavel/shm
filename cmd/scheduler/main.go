@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"shm/internal/config"
 	"shm/internal/lib/setup"
-	"shm/internal/repository/postgres"
 	"shm/internal/scheduler"
 	"shm/internal/service"
 )
@@ -12,13 +11,13 @@ import (
 func main() {
 	cfg := config.NewSchedulerConfig()
 
-	db := setup.ConnectToPostgreSQL(config.NewPostgreSQLConfig())
+	db := setup.ConnectToDatabase(cfg.DbDriver)
 	defer db.Close()
 
 	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
-	sitesRepo := postgres.NewSitesRepo(db)
+	sitesRepo := db.SitesRepo()
 	sitesService := service.NewSitesService(sitesRepo, cfg.CommonConfig)
 
 	slog.Info("starting scheduler service")

@@ -6,7 +6,6 @@ import (
 	"shm/internal/config"
 	"shm/internal/lib/setup"
 	"shm/internal/lib/sl"
-	"shm/internal/repository/sqlite"
 	"shm/internal/server"
 	"shm/internal/service"
 )
@@ -14,10 +13,10 @@ import (
 func main() {
 	cfg := config.NewServerConfig()
 
-	db := setup.ConnectToPostgreSQL(config.NewPostgreSQLConfig())
+	db := setup.ConnectToDatabase(cfg.DbDriver)
 	defer db.Close()
 
-	sitesRepo := sqlite.NewSitesRepo(db)
+	sitesRepo := db.SitesRepo()
 	sites := service.NewSitesService(sitesRepo, cfg.CommonConfig)
 
 	server := server.New(sites, cfg)

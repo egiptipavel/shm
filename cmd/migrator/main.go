@@ -13,7 +13,7 @@ import (
 func main() {
 	cfg := config.NewMigratorConfig()
 
-	db := setup.ConnectToPostgreSQL(config.NewPostgreSQLConfig())
+	db := setup.ConnectToDatabase(cfg.DbDriver)
 	defer db.Close()
 
 	if err := goose.SetDialect(cfg.DbDriver); err != nil {
@@ -21,7 +21,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := goose.Up(db, cfg.MigrationsFolder); err != nil {
+	if err := goose.Up(db.DB(), cfg.MigrationsFolder); err != nil {
 		slog.Error("failed to applies all available migrations", sl.Error(err))
 		os.Exit(1)
 	}

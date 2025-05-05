@@ -3,7 +3,6 @@ package config
 import (
 	"log/slog"
 	"os"
-	"shm/internal/db"
 	"shm/internal/lib/sl"
 	"slices"
 	"strconv"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+var drivers = []string{"postgres", "sqlite"}
 
 func init() {
 	var envFiles []string
@@ -33,7 +34,7 @@ type CommonConfig struct {
 
 func NewCommonConfig() CommonConfig {
 	return CommonConfig{
-		DbDriver:               getEnvFrom("DATABASE_DRIVER", db.Drivers, "postgres"),
+		DbDriver:               getEnvFrom("DATABASE_DRIVER", drivers, "postgres"),
 		DbQueryTimeoutSec:      time.Duration(getEnvAsInt("DATABASE_QUERY_TIMEOUT_SEC", 5)) * time.Second,
 		BrokerTimeoutSec:       time.Duration(getEnvAsInt("BROKER_TIMEOUT_SEC", 5)) * time.Second,
 		SiteResponseTimeoutSec: time.Duration(getEnvAsInt("SITE_RESPONSE_TIMEOUT_SEC", 5)) * time.Second,

@@ -7,23 +7,22 @@ import (
 	"shm/internal/config"
 	"shm/internal/lib/setup"
 	"shm/internal/lib/sl"
-	"shm/internal/repository/postgres"
 	"shm/internal/service"
 )
 
 func main() {
 	cfg := config.NewCheckerConfig()
 
-	db := setup.ConnectToPostgreSQL(config.NewPostgreSQLConfig())
+	db := setup.ConnectToDatabase(cfg.DbDriver)
 	defer db.Close()
 
 	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
-	resultsRepo := postgres.NewResultsRepo(db)
+	resultsRepo := db.ResultsRepo()
 	resultsService := service.NewResultsService(resultsRepo, cfg.CommonConfig)
 
-	sitesRepo := postgres.NewSitesRepo(db)
+	sitesRepo := db.SitesRepo()
 	sitesService := service.NewSitesService(sitesRepo, cfg.CommonConfig)
 
 	slog.Info("creating checker service")

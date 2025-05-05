@@ -1,6 +1,6 @@
 package config
 
-type PostgreSQLConfig struct {
+type PostgresConfig struct {
 	User string
 	Pass string
 	Host string
@@ -8,8 +8,8 @@ type PostgreSQLConfig struct {
 	Db   string
 }
 
-func NewPostgreSQLConfig() PostgreSQLConfig {
-	return PostgreSQLConfig{
+func NewPostgresConfig() PostgresConfig {
+	return PostgresConfig{
 		User: getEnv("POSTGRES_USER", "postgres"),
 		Pass: getEnvFromFile("POSTGRES_PASSWORD_FILE", "postgres"),
 		Host: getEnv("POSTGRES_IP_ADDRESS", "postgres"),

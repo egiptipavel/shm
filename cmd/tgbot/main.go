@@ -7,7 +7,6 @@ import (
 	"shm/internal/lib/setup"
 	"shm/internal/lib/sl"
 	"shm/internal/notifier/telegram"
-	"shm/internal/repository/postgres"
 	"shm/internal/service"
 )
 
@@ -18,16 +17,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	db := setup.ConnectToPostgreSQL(config.NewPostgreSQLConfig())
+	db := setup.ConnectToDatabase(cfg.DbDriver)
 	defer db.Close()
 
 	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
 	defer broker.Close()
 
-	chatsRepo := postgres.NewChatsRepo(db)
+	chatsRepo := db.ChatsRepo()
 	chatsService := service.NewChatsService(chatsRepo, cfg.CommonConfig)
 
-	sitesRepo := postgres.NewSitesRepo(db)
+	sitesRepo := db.SitesRepo()
 	sitesService := service.NewSitesService(sitesRepo, cfg.CommonConfig)
 
 	tgbot, err := telegram.New(broker, chatsService, sitesService, cfg)
