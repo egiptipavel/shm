@@ -14,6 +14,7 @@ import (
 )
 
 var drivers = []string{"postgres", "sqlite"}
+var brokers = []string{"rabbitmq"}
 
 func init() {
 	var envFiles []string
@@ -29,6 +30,7 @@ func init() {
 type CommonConfig struct {
 	DbDriver               string
 	DbQueryTimeoutSec      time.Duration
+	MessageBroker          string
 	BrokerTimeoutSec       time.Duration
 	SiteResponseTimeoutSec time.Duration
 }
@@ -37,6 +39,7 @@ func NewCommonConfig() CommonConfig {
 	return CommonConfig{
 		DbDriver:               getEnvFrom("DATABASE_DRIVER", drivers, "postgres"),
 		DbQueryTimeoutSec:      getEnvAsDuration("DATABASE_QUERY_TIMEOUT_SEC", 5*time.Second),
+		MessageBroker:          getEnvFrom("MESSAGE_BROKER", brokers, "rabbitmq"),
 		BrokerTimeoutSec:       getEnvAsDuration("BROKER_TIMEOUT_SEC", 5*time.Second),
 		SiteResponseTimeoutSec: getEnvAsDuration("SITE_RESPONSE_TIMEOUT_SEC", 5*time.Second),
 	}

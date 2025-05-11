@@ -2,13 +2,12 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"shm/internal/broker/rabbitmq"
+	"shm/internal/broker"
 	"shm/internal/config"
 	"shm/internal/lib/sl"
 	urlpkg "shm/internal/lib/url"
@@ -18,23 +17,21 @@ import (
 	"syscall"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"golang.org/x/sync/errgroup"
 
 	"gopkg.in/telebot.v4"
 )
 
 type TGBot struct {
-	bot           *telebot.Bot
-	broker        *rabbitmq.RabbitMQ
-	notifications <-chan amqp.Delivery
-	chats         *service.ChatsService
-	sites         *service.SitesService
-	config        config.TelegramBotConfig
+	bot    *telebot.Bot
+	broker broker.MessageBroker
+	chats  *service.ChatsService
+	sites  *service.SitesService
+	config config.TelegramBotConfig
 }
 
 func New(
-	broker *rabbitmq.RabbitMQ,
+	broker broker.MessageBroker,
 	chats *service.ChatsService,
 	sites *service.SitesService,
 	config config.TelegramBotConfig,
@@ -47,18 +44,12 @@ func New(
 		return nil, err
 	}
 
-	notifications, err := broker.ConsumeNotifications()
-	if err != nil {
-		return nil, fmt.Errorf("failed to register a consumer for notifications: %w", err)
-	}
-
 	t := &TGBot{
-		bot:           bot,
-		broker:        broker,
-		notifications: notifications,
-		chats:         chats,
-		sites:         sites,
-		config:        config,
+		bot:    bot,
+		broker: broker,
+		chats:  chats,
+		sites:  sites,
+		config: config,
 	}
 
 	bot.Handle("/start", t.startCommand)
@@ -77,8 +68,14 @@ func (t *TGBot) Start() {
 	defer stop()
 	g, ctx := errgroup.WithContext(ctx)
 
+	notifications, err := t.broker.ConsumeNotifications(ctx)
+	if err != nil {
+		slog.Error("failed to register a consumer for notifications", sl.Error(err))
+		return
+	}
+
 	g.Go(func() error {
-		return t.handleNotifications(ctx)
+		return t.handleNotifications(ctx, notifications)
 	})
 
 	g.Go(func() error {
@@ -97,18 +94,17 @@ func (t *TGBot) Start() {
 	}
 }
 
-func (t *TGBot) handleNotifications(ctx context.Context) error {
+func (t *TGBot) handleNotifications(
+	ctx context.Context,
+	notifications <-chan model.Notification,
+) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case msg, ok := <-t.notifications:
+		case notification, ok := <-notifications:
 			if !ok {
-				return fmt.Errorf("channel with messages was closed")
-			}
-			var notification model.Notification
-			if err := json.Unmarshal(msg.Body, &notification); err != nil {
-				return fmt.Errorf("failed to parse notification: %w", err)
+				return fmt.Errorf("queue with notitications was closed")
 			}
 			if err := t.Notify(ctx, notification); err != nil {
 				return fmt.Errorf("failed to handle notification: %w", err)

@@ -2,31 +2,27 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"shm/internal/broker/rabbitmq"
+	"shm/internal/broker"
 	"shm/internal/config"
 	"shm/internal/lib/sl"
-	"shm/internal/model"
 	"shm/internal/service"
 	"syscall"
 	"time"
-
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type Scheduler struct {
-	broker *rabbitmq.RabbitMQ
+	broker broker.MessageBroker
 	sites  *service.SitesService
 	config config.SchedulerConfig
 }
 
 func New(
-	broker *rabbitmq.RabbitMQ,
+	broker broker.MessageBroker,
 	sites *service.SitesService,
 	config config.SchedulerConfig,
 ) *Scheduler {
@@ -68,24 +64,10 @@ func (s *Scheduler) routine(ctx context.Context) error {
 			default:
 			}
 
-			if err = s.sendSiteToBroker(ctx, site); err != nil {
+			if err = s.broker.PublishSite(ctx, site); err != nil {
 				return fmt.Errorf("failed to send site to broker: %w", err)
 			}
 			slog.Info("successfully sending site to broker", sl.Site(site))
 		}
 	}
-}
-
-func (s *Scheduler) sendSiteToBroker(ctx context.Context, site model.Site) error {
-	body, err := json.Marshal(site)
-	if err != nil {
-		return fmt.Errorf("failed to marshal site: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, s.config.BrokerTimeoutSec)
-	defer cancel()
-	return s.broker.PublishToChecks(ctx, amqp.Publishing{
-		ContentType: "application/json",
-		Body:        body,
-	})
 }

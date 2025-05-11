@@ -14,7 +14,7 @@ func main() {
 	db := setup.ConnectToDatabase(cfg.DbDriver)
 	defer db.Close()
 
-	broker := setup.ConnectToRabbitMQ(config.NewRabbitMQConfig())
+	broker := setup.ConnectToMessageBroker(cfg.MessageBroker)
 	defer broker.Close()
 
 	sitesRepo := db.SitesRepo()

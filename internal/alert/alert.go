@@ -2,45 +2,36 @@ package alert
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"shm/internal/broker/rabbitmq"
+	"shm/internal/broker"
 	"shm/internal/config"
 	"shm/internal/lib/sl"
 	"shm/internal/model"
 	"shm/internal/service"
 	"syscall"
 	"time"
-
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type AlertService struct {
-	broker         *rabbitmq.RabbitMQ
-	resultsQueue   <-chan amqp.Delivery
+	broker         broker.MessageBroker
 	resultsService *service.ResultsService
 	config         config.AlertServiceConfig
 }
 
 func New(
-	broker *rabbitmq.RabbitMQ,
+	broker broker.MessageBroker,
 	results *service.ResultsService,
 	config config.AlertServiceConfig,
 ) (*AlertService, error) {
 	if config.NumberOrFailedChecks < 1 {
 		return nil, fmt.Errorf("number of failed checks must be at least 1")
 	}
-	resultsQueue, err := broker.ConsumeResults()
-	if err != nil {
-		return nil, fmt.Errorf("failed to register a consumer for results: %w", err)
-	}
 	return &AlertService{
 		broker:         broker,
-		resultsQueue:   resultsQueue,
 		resultsService: results,
 		config:         config,
 	}, nil
@@ -51,23 +42,25 @@ func (a *AlertService) Start() {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := a.routine(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	resultsQueue, err := a.broker.ConsumeResults(ctx)
+	if err != nil {
+		slog.Error("failed to register a consumer for check results", sl.Error(err))
+		return
+	}
+
+	if err := a.routine(ctx, resultsQueue); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("error from alert service", sl.Error(err))
 	}
 }
 
-func (a *AlertService) routine(ctx context.Context) error {
+func (a *AlertService) routine(ctx context.Context, resultsQueue <-chan model.CheckResult) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case msg, ok := <-a.resultsQueue:
+		case result, ok := <-resultsQueue:
 			if !ok {
-				return fmt.Errorf("channel with messages was closed")
-			}
-			var result model.CheckResult
-			if err := json.Unmarshal(msg.Body, &result); err != nil {
-				return fmt.Errorf("failed to parse check result: %w", err)
+				return fmt.Errorf("queue with results was closed")
 			}
 			if err := a.sendNotificationIfNeeded(ctx, result.Site); err != nil {
 				return fmt.Errorf("failed to handle check result: %w", err)
@@ -139,7 +132,7 @@ func (a *AlertService) sendNotificationIfNeeded(ctx context.Context, site model.
 			Message: message,
 		}
 		slog.Info("sending notification", sl.Notification(notification))
-		return a.sendNotification(ctx, notification)
+		return a.broker.PublishNotification(ctx, notification)
 	}
 	return nil
 }
@@ -151,18 +144,4 @@ func (a *AlertService) allChecksFailed(results []model.CheckResult) bool {
 		}
 	}
 	return true
-}
-
-func (a *AlertService) sendNotification(ctx context.Context, notification model.Notification) error {
-	body, err := json.Marshal(notification)
-	if err != nil {
-		return fmt.Errorf("failed to marshal notification: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, a.config.BrokerTimeoutSec)
-	defer cancel()
-	return a.broker.PublishToNotifications(ctx, amqp.Publishing{
-		ContentType: "application/json",
-		Body:        body,
-	})
 }

@@ -7,7 +7,7 @@ type TelegramBotConfig struct {
 
 func NewTelegramBotConfig() TelegramBotConfig {
 	return TelegramBotConfig{
-		Token:        getEnvFromFile("TELEGRAM_TOKEN_FILE", ""),
+		Token:        getEnvFromFile("TELEGRAM_TOKEN_FILE", getEnv("TELEGRAM_TOKEN", "")),
 		CommonConfig: NewCommonConfig(),
 	}
 }
